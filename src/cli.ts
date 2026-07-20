@@ -40,6 +40,7 @@ async function generate(options: GenerateOptions): Promise<void> {
   console.log("[3/7] Classifying Salesforce components changed by the pull request...");
   const classifiedFiles = classifyChangedFiles(pullRequest.changedFiles);
   console.log(`[3/7] Classified ${classifiedFiles.length} changed files.`);
+  // Temporary diagnostics: remove this collector, callback, and usage.json output when cost visibility is no longer needed.
   const modelUsage: StoryDocModelUsage[] = [];
   const analyser = new CodexAnalyser(undefined, (usage) => {
     modelUsage.push(usage);

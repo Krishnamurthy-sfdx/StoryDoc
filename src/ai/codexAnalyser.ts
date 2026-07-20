@@ -23,6 +23,8 @@ export type StoryDocModelUsage = {
   estimatedApiEquivalentCostUsd?: number;
 };
 
+// Temporary diagnostics: this is an API-equivalent estimate, not Codex-plan billing.
+
 const supportedReasoningEfforts = new Set<ModelReasoningEffort>(["minimal", "low", "medium", "high", "xhigh"]);
 
 /** Terra handles the focused extraction task; Luna High handles implementation analysis. */

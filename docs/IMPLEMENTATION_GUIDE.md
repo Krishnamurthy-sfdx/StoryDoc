@@ -42,7 +42,7 @@ It then uses AI to compare the requirements against the real code changes and pr
 - `analysis.json` — the raw, structured data (the "source of truth").
 - `technical-documentation.md` — a readable Markdown document.
 - `technical-documentation.html` — the same document as a styled web page.
-- `usage.json` — how many tokens each AI pass consumed, plus an API-equivalent cost estimate (see Topic 7).
+- `usage.json` — how many tokens each AI pass consumed, plus an API-equivalent cost estimate. This one is **temporary diagnostic output** and is expected to be removed later (see Topic 7).
 
 It is **local-first**: everything runs on your own machine. There is no StoryDoc server, no database, and no data is stored anywhere except your own disk.
 
@@ -326,6 +326,8 @@ This part is important and was strengthened in the recent changes:
 
 ### Token usage and cost estimation
 
+> **This is temporary diagnostic instrumentation.** It exists to give visibility into what a run costs while the tool is being tuned, and is marked in the code (`src/ai/codexAnalyser.ts`, `src/cli.ts`) as removable. When that visibility is no longer needed, the whole feature comes out together: the `reportUsage` callback, the `modelUsage` collector in the CLI, and the `usage.json` output. Do not build anything that depends on `usage.json` being present.
+
 Every call to an AI model consumes **tokens** (roughly, pieces of words) and therefore costs money. StoryDoc measures and reports this.
 
 The Codex SDK returns a `usage` object with each turn. `CodexAnalyser` takes an optional second constructor argument — a `reportUsage` callback — and calls it once per pass with a `StoryDocModelUsage` record: the stage (`Terra`/`Luna`), the model name, and four counts: `inputTokens`, `cachedInputTokens`, `outputTokens`, and `reasoningOutputTokens`.
@@ -485,7 +487,7 @@ StoryDoc loads `.env` automatically at startup (without overriding anything alre
 2. **Jira description field.** `summary` is now requested alongside the two custom fields, so document titles are correct. Adding Jira's standard `description` field is a remaining small improvement.
 3. **Live AI smoke test.** The `--skip-ai` path is verified end to end; a full run through Terra and Luna still needs to be exercised once with your Codex setup (confirm the default model names exist, or override them via the model environment variables).
 4. **Live GitHub test.** Running against a real PR with `gh` has not been done yet.
-5. **Cost rates for overridden models.** Public token rates are hard-coded for the two default models only; overriding a model leaves the cost estimate blank. Making the rate table configurable would close that gap.
+5. **Retire the cost instrumentation.** The token-usage and cost reporting is explicitly marked temporary. Once the tool's running costs are understood, remove the `reportUsage` callback, the CLI collector, and the `usage.json` output. (If it is instead kept long term, the hard-coded rate table — which only covers the two default models — should be made configurable first.)
 6. **Renderer polish.** The Markdown-to-HTML conversion is a simple regex-based approach. It is safe (everything is escaped) but produces slightly untidy HTML; a proper Markdown library would improve it.
 
 ---
