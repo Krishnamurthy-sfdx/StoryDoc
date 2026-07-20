@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>Active_Subscription_Count__c</fullName>
-    <description
-  >Count of Active subscriptions for this account. Maintained by SubscriptionRollupService.</description>
+    <description>Count of Active subscriptions for this account.</description>
     <externalId>false</externalId>
     <inlineHelpText
   >Number of Active subscriptions on this account.</inlineHelpText>
     <label>Active Subscription Count</label>
-    <precision>18</precision>
-    <required>false</required>
-    <scale>0</scale>
+    <summaryFilterItems>
+        <field>Subscription__c.Status__c</field>
+        <operation>equals</operation>
+        <value>Active</value>
+    </summaryFilterItems>
+    <summaryForeignKey>Subscription__c.Account__c</summaryForeignKey>
+    <summaryOperation>count</summaryOperation>
     <trackHistory>false</trackHistory>
-    <type>Number</type>
-    <unique>false</unique>
+    <type>Summary</type>
 </CustomField>

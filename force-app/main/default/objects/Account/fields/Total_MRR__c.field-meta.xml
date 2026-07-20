@@ -2,14 +2,19 @@
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>Total_MRR__c</fullName>
     <description
-  >Sum of MRR across all Active subscriptions for this account. Maintained by SubscriptionRollupService.</description>
+  >Sum of MRR across all Active subscriptions for this account.</description>
     <externalId>false</externalId>
     <inlineHelpText
   >Sum of MRR for all Active subscriptions on this account.</inlineHelpText>
     <label>Total MRR</label>
-    <precision>16</precision>
-    <required>false</required>
-    <scale>2</scale>
+    <summarizedField>Subscription__c.MRR__c</summarizedField>
+    <summaryFilterItems>
+        <field>Subscription__c.Status__c</field>
+        <operation>equals</operation>
+        <value>Active</value>
+    </summaryFilterItems>
+    <summaryForeignKey>Subscription__c.Account__c</summaryForeignKey>
+    <summaryOperation>sum</summaryOperation>
     <trackHistory>false</trackHistory>
-    <type>Currency</type>
+    <type>Summary</type>
 </CustomField>

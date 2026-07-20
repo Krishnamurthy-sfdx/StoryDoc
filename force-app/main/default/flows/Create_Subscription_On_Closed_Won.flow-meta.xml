@@ -2,39 +2,6 @@
 <Flow xmlns="http://soap.sforce.com/2006/04/metadata">
     <apiVersion>67.0</apiVersion>
     <assignments>
-        <name>Set_Failure_Owner_To_Opportunity_Owner</name>
-        <label>Set Failure Owner To Opportunity Owner</label>
-        <locationX>700</locationX>
-        <locationY>767</locationY>
-        <assignmentItems>
-            <assignToReference>varFailureTaskOwnerId</assignToReference>
-            <operator>Assign</operator>
-            <value>
-                <elementReference>$Record.OwnerId</elementReference>
-            </value>
-        </assignmentItems>
-        <connector>
-            <targetReference>Log_Error</targetReference>
-        </connector>
-    </assignments>
-    <assignments>
-        <name>Set_Failure_Owner_To_Sales_Ops</name>
-        <label>Set Failure Owner To Sales Ops</label>
-        <locationX>500</locationX>
-        <locationY>767</locationY>
-        <assignmentItems>
-            <assignToReference>varFailureTaskOwnerId</assignToReference>
-            <operator>Assign</operator>
-            <value>
-                <elementReference
-        >Get_Automation_Setting.Sales_Ops_Owner_Id__c</elementReference>
-            </value>
-        </assignmentItems>
-        <connector>
-            <targetReference>Log_Error</targetReference>
-        </connector>
-    </assignments>
-    <assignments>
         <name>Set_Product_From_Line_Item</name>
         <label>Set Product From Line Item</label>
         <locationX>50</locationX>
@@ -84,37 +51,9 @@
                 </rightValue>
             </conditions>
             <connector>
-                <targetReference>Get_Automation_Setting</targetReference>
+                <targetReference>Check_Product_Name</targetReference>
             </connector>
             <label>Not Bypassed</label>
-        </rules>
-    </decisions>
-    <decisions>
-        <name>Check_Failure_Task_Owner</name>
-        <label>Check Failure Task Owner</label>
-        <locationX>600</locationX>
-        <locationY>647</locationY>
-        <defaultConnectorLabel>Use Opportunity Owner</defaultConnectorLabel>
-        <defaultConnector>
-            <targetReference
-      >Set_Failure_Owner_To_Opportunity_Owner</targetReference>
-        </defaultConnector>
-        <rules>
-            <name>Sales_Ops_Owner_Configured</name>
-            <conditionLogic>and</conditionLogic>
-            <conditions>
-                <leftValueReference
-        >Get_Automation_Setting.Sales_Ops_Owner_Id__c</leftValueReference>
-                <operator>IsNull</operator>
-                <rightValue>
-                    <booleanValue>false</booleanValue>
-                </rightValue>
-            </conditions>
-            <connector>
-                <targetReference
-        >Set_Failure_Owner_To_Sales_Ops</targetReference>
-            </connector>
-            <label>Sales Ops Owner Configured</label>
         </rules>
     </decisions>
     <decisions>
@@ -188,11 +127,7 @@
         <dataType>Number</dataType>
         <expression>IF(
   OR(ISBLANK({!$Record.Term_Months__c}), {!$Record.Term_Months__c} &lt;= 0),
-  IF(
-    OR(ISBLANK({!Get_Automation_Setting.Default_Term_Months__c}), {!Get_Automation_Setting.Default_Term_Months__c} &lt;= 0),
-    12,
-    {!Get_Automation_Setting.Default_Term_Months__c}
-  ),
+  12,
   {!$Record.Term_Months__c}
 )</expression>
         <scale>0</scale>
@@ -222,12 +157,6 @@
             <field>Description</field>
             <value>
                 <elementReference>fxFailureTaskDescription</elementReference>
-            </value>
-        </inputAssignments>
-        <inputAssignments>
-            <field>OwnerId</field>
-            <value>
-                <elementReference>varFailureTaskOwnerId</elementReference>
             </value>
         </inputAssignments>
         <inputAssignments>
@@ -266,7 +195,7 @@
             <targetReference>Link_Subscription_To_Opportunity</targetReference>
         </connector>
         <faultConnector>
-            <targetReference>Check_Failure_Task_Owner</targetReference>
+            <targetReference>Log_Error</targetReference>
         </faultConnector>
         <inputAssignments>
             <field>Account__c</field>
@@ -361,31 +290,6 @@
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </recordCreates>
     <recordLookups>
-        <name>Get_Automation_Setting</name>
-        <label>Get Automation Setting</label>
-        <locationX>176</locationX>
-        <locationY>407</locationY>
-        <assignNullValuesIfNoRecordsFound
-    >true</assignNullValuesIfNoRecordsFound>
-        <connector>
-            <targetReference>Check_Product_Name</targetReference>
-        </connector>
-        <filterLogic>and</filterLogic>
-        <filters>
-            <field>DeveloperName</field>
-            <operator>EqualTo</operator>
-            <value>
-                <stringValue>Default</stringValue>
-            </value>
-        </filters>
-        <getFirstRecordOnly>true</getFirstRecordOnly>
-        <object>Subscription_Automation__mdt</object>
-        <queriedFields>Id</queriedFields>
-        <queriedFields>Sales_Ops_Owner_Id__c</queriedFields>
-        <queriedFields>Default_Term_Months__c</queriedFields>
-        <storeOutputAutomatically>true</storeOutputAutomatically>
-    </recordLookups>
-    <recordLookups>
         <name>Get_Primary_Line_Item</name>
         <label>Get Primary Line Item</label>
         <locationX>50</locationX>
@@ -417,7 +321,7 @@
         <locationX>176</locationX>
         <locationY>1007</locationY>
         <faultConnector>
-            <targetReference>Check_Failure_Task_Owner</targetReference>
+            <targetReference>Log_Error</targetReference>
         </faultConnector>
         <filterLogic>and</filterLogic>
         <filters>
@@ -456,13 +360,6 @@
         <triggerType>RecordAfterSave</triggerType>
     </start>
     <status>Active</status>
-    <variables>
-        <name>varFailureTaskOwnerId</name>
-        <dataType>String</dataType>
-        <isCollection>false</isCollection>
-        <isInput>false</isInput>
-        <isOutput>false</isOutput>
-    </variables>
     <variables>
         <name>varProductName</name>
         <dataType>String</dataType>

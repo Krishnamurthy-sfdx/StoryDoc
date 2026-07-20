@@ -3,8 +3,8 @@
 Salesforce-native subscription lifecycle: data model and security (AC-1), automated
 subscription creation on Closed Won (AC-2), and renewal automation (AC-3).
 
-Validated with `sf project deploy start --dry-run` against a real org: 52/52
-components valid, 7/7 Apex tests passing.
+Deployed to a real org: 46/46 components. No Apex — the Account roll-ups are
+native roll-up summary fields over a master-detail relationship.
 
 ## What was built
 
@@ -58,18 +58,17 @@ owned by `Account.OwnerId`, due on `End_Date__c`, related to the subscription, w
 These are places where the written requirement is not directly expressible on the
 platform. Each was resolved in the way that preserves the intent.
 
-**Roll-ups are Apex, not roll-up summary fields.** Roll-up summary fields require a
-master-detail relationship, but the story specifies `Account__c` as a _lookup_.
-Keeping the lookup, `SubscriptionRollupService` + `SubscriptionTrigger` recalculate
-`Total_MRR__c` and `Active_Subscription_Count__c` for Active subscriptions. The
-trigger is bulk-safe (one aggregate query per transaction) and handles insert,
-update, delete, undelete and re-parenting. Covered by `SubscriptionRollupServiceTest`.
+**`Account__c` is a master-detail relationship.** The story described it as a
+lookup, but native roll-up summary fields require master-detail. Master-detail was
+chosen so `Total_MRR__c` and `Active_Subscription_Count__c` are real roll-up
+summaries maintained by the platform — no Apex, no trigger, no test to maintain.
+Consequences: `Subscription__c` uses `ControlledByParent` sharing, subscriptions are
+deleted with their account, and the relationship is re-parentable.
 
-**The Sales Ops failure task goes to a user, not a queue.** Salesforce does not
-support queue ownership of Tasks. The `Subscription_Automation__mdt.Default` record
-carries `Sales_Ops_Owner_Id__c`; the flow assigns that user and falls back to the
-opportunity owner when it is blank. **Set this value after deploying.** A `Sales_Ops`
-queue is included for `Error_Log__c` ownership.
+**The failure task is owned by the running user.** Salesforce does not support
+queue ownership of Tasks. Rather than introduce configuration for this, the fault
+path leaves `OwnerId` unset, so the task belongs to whoever saved the opportunity —
+the person best placed to notice it.
 
 **`Status__c` is not a required field.** Salesforce rejects field-level security on
 required fields, and the story requires Status to be read-only via FLS. Status is
@@ -90,13 +89,14 @@ flow formula reference, so `Opportunity.Renewal_Type__c` drives it, defaulting t
 legitimate data loads. The scheduled flow is unaffected because it only sets Expired
 once `Days_Until_Expiry__c <= 0`.
 
-**Standard layouts are replaced, not merged.** Deploying `Account-Account Layout` and
-`Opportunity-Opportunity Layout` overwrites those layouts in the target org. Review
-them against the destination org before deploying to production.
+**Dedicated layouts, so nothing existing is overwritten.** The Account and
+Opportunity changes ship as _new_ layouts — `Account Subscription Layout` and
+`Opportunity Subscription Layout` — rather than modifying the org's existing
+layouts. Assign them to profiles as needed; no current layout is touched.
 
 **`Urgent` was added to the TaskPriority standard value set.** It is not a standard
-value. `standardValueSets/TaskPriority` includes Urgent, High, Normal and Low —
-deploying it replaces the org's existing set.
+value. The shipped set is Urgent, High, Normal and Low — the org's existing three
+values are all preserved, so this is purely additive.
 
 ## Lightning app
 
@@ -108,21 +108,23 @@ appear in the App Launcher.
 
 ## Post-deployment steps
 
-1. Populate `Subscription_Automation__mdt.Default.Sales_Ops_Owner_Id__c` with the
-   Sales Ops user Id.
-2. Assign `Subscription_Manager` to CSMs and Sales Ops, `Subscription_Viewer` to
+1. Assign `Subscription_Manager` to CSMs and Sales Ops, `Subscription_Viewer` to
    Sales Reps and Support, `Subscription_Automation_Bypass` to integration and
    migration users.
-3. Add members to the `Sales_Ops` queue.
-4. Confirm `Daily_Subscription_Expiry_Check` is scheduled for 06:00 in the org
+2. Confirm `Daily_Subscription_Expiry_Check` is scheduled for 06:00 in the org
    timezone; the schedule start date is 2026-07-21.
-5. Activate the `Subscription_Record_Page` as the org default for `Subscription__c`.
-6. Open the App Launcher and confirm the **Subscription Management** app is visible
+3. Activate the `Subscription_Record_Page` as the org default for `Subscription__c`.
+4. Assign `Account Subscription Layout` and `Opportunity Subscription Layout` to the
+   relevant profiles.
+5. Open the App Launcher and confirm the **Subscription Management** app is visible
    to the assigned users.
 
 ## Verification
 
 ```bash
-sf project deploy start --dry-run --source-dir force-app \
-  --test-level RunSpecifiedTests --tests SubscriptionRollupServiceTest
+sf project deploy start --dry-run --source-dir force-app
 ```
+
+Deployed to the org on 2026-07-20: 46/46 components. The Account roll-ups were
+confirmed in the org as `Roll-Up Summary (SUM Subscription)` and
+`Roll-Up Summary (COUNT Subscription)`.
