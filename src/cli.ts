@@ -30,17 +30,24 @@ async function generate(options: GenerateOptions): Promise<void> {
   const workingDirectory = process.cwd();
   const prProvider = options.prFile ? new LocalPullRequestProvider(resolve(workingDirectory, options.prFile)) : new GitHubCliPullRequestProvider(workingDirectory);
   const storyProvider = options.storyFile ? new LocalFileStoryProvider(resolve(workingDirectory, options.storyFile), options.designFile ? resolve(workingDirectory, options.designFile) : undefined) : new JiraStoryProvider();
-  console.log(`Loading pull request #${options.pr}...`);
+  console.log(`[1/7] Fetching pull request #${options.pr}...`);
   const pullRequest = await prProvider.getPullRequest(options.pr);
+  console.log(`[1/7] Pull request loaded: ${pullRequest.changedFiles.length} changed files.`);
+  console.log(`[2/7] Fetching story ${options.ticket} from ${options.storyFile ? "local files" : "Jira"}...`);
   const story = await storyProvider.getStory(options.ticket);
+  console.log(`[2/7] Story loaded: ${story.summary || story.id}.`);
+  console.log("[3/7] Classifying Salesforce components changed by the pull request...");
   const classifiedFiles = classifyChangedFiles(pullRequest.changedFiles);
-  console.log(`Found ${classifiedFiles.length} changed files.`);
+  console.log(`[3/7] Classified ${classifiedFiles.length} changed files.`);
   const analyser = new CodexAnalyser();
-  const requirements = options.skipAi ? { storyId: story.id, summary: story.summary, acceptanceCriteria: [], designDecisions: [], assumptions: ["AI analysis was skipped."] } : await analyser.extractRequirements(story);
-  const implementation = options.skipAi ? { solutionOverview: "AI analysis was skipped.", components: [], supportingChanges: [], securityChanges: [], dependencies: [], testing: { testFiles: [], sourceScenarios: [], executionStatus: "Tests were not executed by StoryDoc." as const }, deploymentNotes: [], assumptions: [] } : await analyser.analyseImplementation({ story, requirements, pullRequest, classifiedFiles });
+  const requirements = options.skipAi ? skippedRequirements(story) : await extractRequirementsWithProgress(analyser, story);
+  const implementation = options.skipAi ? skippedImplementation() : await analyseImplementationWithProgress(analyser, { story, requirements, pullRequest, classifiedFiles });
+  console.log("[6/7] Validating component evidence against the pull request...");
   validateFileEvidence(implementation, pullRequest.changedFiles);
+  console.log("[6/7] Evidence validation complete.");
   const document = redactSensitiveContent(buildDocumentationAnalysis({ story, requirements, pullRequest, implementation }));
   const outputDirectory = resolveStoryOutputDirectory(workingDirectory, options.outputDir, options.ticket);
+  console.log(`[7/7] Writing generated documentation to ${outputDirectory}...`);
   await mkdir(outputDirectory, { recursive: true });
   const outputFiles = [resolve(outputDirectory, "analysis.json"), resolve(outputDirectory, "technical-documentation.md"), resolve(outputDirectory, "technical-documentation.html")];
   if (!options.force) {
@@ -54,6 +61,50 @@ async function generate(options: GenerateOptions): Promise<void> {
     writeFile(outputFiles[2], renderHtml(document), { flag: options.force ? "w" : "wx" }),
   ]);
   console.log(`Generated documentation in ${outputDirectory}`);
+}
+
+async function extractRequirementsWithProgress(analyser: CodexAnalyser, story: { id: string; description: string; technicalDesign: string }) {
+  console.log("[4/7] Terra: extracting acceptance criteria and technical-design decisions (low reasoning effort)...");
+  const stopPulse = startProgressPulse("Terra", "still extracting and structuring story requirements");
+  try {
+    const requirements = await analyser.extractRequirements(story);
+    console.log(`[4/7] Terra complete: ${requirements.acceptanceCriteria.length} acceptance criteria and ${requirements.designDecisions.length} design decisions extracted.`);
+    return requirements;
+  } finally {
+    stopPulse();
+  }
+}
+
+async function analyseImplementationWithProgress(analyser: CodexAnalyser, input: Parameters<CodexAnalyser["analyseImplementation"]>[0]) {
+  console.log("[5/7] Luna: analyzing changed components, dependencies, security, testing, and deployment impact (high reasoning effort)...");
+  const stopPulse = startProgressPulse("Luna", "still analyzing the pull-request diff and Salesforce metadata");
+  try {
+    const implementation = await analyser.analyseImplementation(input);
+    console.log(`[5/7] Luna complete: ${implementation.components.length} components and ${implementation.testing.testFiles.length} test files identified.`);
+    return implementation;
+  } finally {
+    stopPulse();
+  }
+}
+
+function skippedRequirements(story: { id: string; summary: string }) {
+  console.log("[4/7] Terra skipped because --skip-ai was supplied.");
+  return { storyId: story.id, summary: story.summary, acceptanceCriteria: [], designDecisions: [], assumptions: ["AI analysis was skipped."] };
+}
+
+function skippedImplementation() {
+  console.log("[5/7] Luna skipped because --skip-ai was supplied.");
+  return { solutionOverview: "AI analysis was skipped.", components: [], supportingChanges: [], securityChanges: [], dependencies: [], testing: { testFiles: [], sourceScenarios: [], executionStatus: "Tests were not executed by StoryDoc." as const }, deploymentNotes: [], assumptions: [] };
+}
+
+function startProgressPulse(model: "Terra" | "Luna", activity: string): () => void {
+  const startedAt = Date.now();
+  const timer = setInterval(() => {
+    const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1_000);
+    console.log(`[${model}] ${activity} (${elapsedSeconds}s elapsed)...`);
+  }, 15_000);
+  timer.unref();
+  return () => clearInterval(timer);
 }
 
 function parsePositiveInteger(value: string): number { const parsed = Number(value); if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`Invalid pull request number: ${value}`); return parsed; }

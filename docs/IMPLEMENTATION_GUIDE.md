@@ -340,11 +340,11 @@ The `--ticket` value becomes an output **folder name**. Without protection, a va
 
 A set of patterns detects things that look like credentials:
 
-- Private key blocks (`-----BEGIN ... PRIVATE KEY-----`)
+- Private key blocks (PEM-encoded `BEGIN PRIVATE KEY` / `BEGIN CERTIFICATE` markers)
 - Environment-style assignments (`MY_API_TOKEN=...`, `DB_PASSWORD=...`)
 - Known token formats (GitHub `ghp_...` / `github_pat_...`, Slack `xoxb-...`, OpenAI `sk-...`, Atlassian `ATATT...`)
 - `Bearer` / `Basic` authorization headers
-- `password: ...`, `api_key = ...` style pairs
+- Credential-style `name` + separator + `value` pairs, such as a password or an API key assignment
 
 Matches are replaced with `[REDACTED BY STORYDOC]`. The recursive version walks any object or array and cleans **every string field**. Redaction is applied at **two points**: before text goes _into_ the AI, and again on the final document before it is written to disk. So even if something slips through the first pass, it cannot end up in the generated documentation — which matters because documentation gets shared with people who shouldn't see secrets.
 
@@ -358,7 +358,7 @@ Described in Topic 1: existing output is never overwritten unless the user passe
 
 ### 5. Repository secret scan (`scripts/check-secrets.mjs`)
 
-A standalone script (run with `npm run check:secrets`) reads **every file tracked by git** and searches for known token shapes — Atlassian `ATATT...` tokens, GitHub/Slack/OpenAI tokens, private-key blocks, and `JIRA_API_TOKEN=<value>`-style assignments with real values. If anything matches, it prints the file names and fails. This is the last line of defence against accidentally committing a credential.
+A standalone script (run with `npm run check:secrets`) reads **every file tracked by git** and searches for known token shapes — Atlassian `ATATT` tokens, GitHub/Slack/OpenAI tokens, private-key blocks, and assignments to variables like `JIRA_API_TOKEN` that contain a real value. If anything matches, it prints the file names and fails. This is the last line of defence against accidentally committing a credential.
 
 ### 6. Continuous Integration (`.github/workflows/storydoc.yml`)
 
