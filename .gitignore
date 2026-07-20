@@ -23,6 +23,8 @@ yarn-error.log*
 
 # Dependency directories
 node_modules/
+dist/
+.storydoc/
 
 # ApexPMD cache
 .pmdCache
@@ -39,8 +41,14 @@ ehthumbs.db
 [Dd]esktop.ini
 $RECYCLE.BIN/
 
-# Local environment variables
+# Local credentials and environment variables. Commit only .env.example.
 .env
+.env.*
+!.env.example
+.storydoc-secrets/
+*.pem
+*.key
+*.p12
 
 # Python Salesforce Functions
 **/__pycache__/
