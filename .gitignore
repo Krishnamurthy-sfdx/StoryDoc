@@ -25,6 +25,7 @@ yarn-error.log*
 node_modules/
 dist/
 .storydoc/
+outputdocs/
 
 # ApexPMD cache
 .pmdCache
