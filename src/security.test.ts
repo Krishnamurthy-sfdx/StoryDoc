@@ -11,10 +11,11 @@ test("redacts credentials recursively from generated content", () => {
   const content = redactSensitiveContent({
     securityChanges: ["Authorization: Bearer abcdefghijklmnop1234"],
     notes: "PRIVATE_KEY=top-secret-value",
-    nested: { token: "ghp_12345678901234567890" },
+    nested: { token: "ghp_" + "12345678901234567890" },
+    jiraToken: "ATATT" + "not-a-real-token-value-1234567890",
   });
   assert.match(content.securityChanges[0], /REDACTED BY STORYDOC/);
   assert.match(content.notes, /REDACTED BY STORYDOC/);
   assert.match(content.nested.token, /REDACTED BY STORYDOC/);
-  assert.doesNotMatch(JSON.stringify(content), /abcdefghijklmnop1234|top-secret-value|ghp_/);
+  assert.doesNotMatch(JSON.stringify(content), /abcdefghijklmnop1234|top-secret-value|ghp_|ATATTnot-a-real-token/);
 });

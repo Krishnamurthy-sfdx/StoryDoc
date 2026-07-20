@@ -30,7 +30,7 @@ export function resolveStoryDocModelConfiguration(environment: NodeJS.ProcessEnv
 }
 
 export class CodexAnalyser {
-  public constructor(_workingDirectory: string, private readonly models = resolveStoryDocModelConfiguration()) {}
+  public constructor(private readonly models = resolveStoryDocModelConfiguration()) {}
 
   public async extractRequirements(story: { id: string; description: string; technicalDesign: string }): Promise<RequirementsExtraction> {
     return this.runInIsolatedWorkspace(this.models.requirements, requirementsPrompt(story), requirementsExtractionSchema, "Terra");
@@ -44,7 +44,7 @@ export class CodexAnalyser {
   private async runInIsolatedWorkspace<T>(model: { model: string; reasoningEffort: ModelReasoningEffort }, prompt: string, schema: ZodType<T>, modelName: string): Promise<T> {
     const isolatedWorkspace = await mkdtemp(join(tmpdir(), "storydoc-analysis-"));
     try {
-      const thread = new Codex().startThread({
+      const thread = this.codexClient().startThread({
         model: model.model,
         modelReasoningEffort: model.reasoningEffort,
         workingDirectory: isolatedWorkspace,
@@ -58,6 +58,11 @@ export class CodexAnalyser {
     } finally {
       await rm(isolatedWorkspace, { recursive: true, force: true });
     }
+  }
+
+  private codexClient(): Codex {
+    const codexPathOverride = process.env.STORYDOC_CODEX_PATH;
+    return codexPathOverride ? new Codex({ codexPathOverride }) : new Codex();
   }
 
   private async runStructured<T>(thread: ReturnType<Codex["startThread"]>, prompt: string, schema: ZodType<T>, modelName: string): Promise<T> {

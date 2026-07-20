@@ -10,7 +10,8 @@
   "scripts": {
     "build:storydoc": "tsc -p tsconfig.storydoc.json",
     "storydoc": "node dist/cli.js",
-    "test:storydoc": "tsc -p tsconfig.storydoc.json && node --test dist/ai/codexAnalyser.test.js dist/ai/evidenceValidator.test.js dist/ai/prompts.test.js dist/documentation/render.test.js dist/providers/jiraProvider.test.js dist/salesforce/metadataClassifier.test.js dist/security.test.js",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "test:storydoc": "tsc -p tsconfig.storydoc.json && node --test dist/ai/codexAnalyser.test.js dist/ai/evidenceValidator.test.js dist/ai/prompts.test.js dist/config/localEnvironment.test.js dist/documentation/render.test.js dist/providers/jiraProvider.test.js dist/salesforce/metadataClassifier.test.js dist/security.test.js",
     "lint": "eslint **/{aura,lwc}/**/*.js",
     "test": "npm run test:unit",
     "test:unit": "sfdx-lwc-jest",
@@ -38,6 +39,9 @@
     "prettier-plugin-apex": "^2.2.6",
     "@types/node": "^24.0.0",
     "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20.12.0"
   },
   "dependencies": {
     "@openai/codex-sdk": "^0.144.6",

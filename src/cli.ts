@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { CodexAnalyser } from "./ai/codexAnalyser.js";
+import { loadLocalEnvironment } from "./config/localEnvironment.js";
 import { validateFileEvidence } from "./ai/evidenceValidator.js";
 import { buildDocumentationAnalysis } from "./documentation/buildAnalysis.js";
 import { renderHtml, renderMarkdown } from "./documentation/render.js";
@@ -18,7 +19,10 @@ program.command("generate").requiredOption("--pr <number>", "pull request number
   try { await generate(options); } catch (error) { console.error(`StoryDoc failed: ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; }
 });
 
-if (process.argv[1]?.endsWith("cli.ts") || process.argv[1]?.endsWith("cli.js")) await program.parseAsync(process.argv);
+if (process.argv[1]?.endsWith("cli.ts") || process.argv[1]?.endsWith("cli.js")) {
+  await loadLocalEnvironment();
+  await program.parseAsync(process.argv);
+}
 
 type GenerateOptions = { pr: number; ticket: string; storyFile?: string; designFile?: string; prFile?: string; outputDir: string; force?: boolean; skipAi?: boolean };
 
@@ -31,7 +35,7 @@ async function generate(options: GenerateOptions): Promise<void> {
   const story = await storyProvider.getStory(options.ticket);
   const classifiedFiles = classifyChangedFiles(pullRequest.changedFiles);
   console.log(`Found ${classifiedFiles.length} changed files.`);
-  const analyser = new CodexAnalyser(workingDirectory);
+  const analyser = new CodexAnalyser();
   const requirements = options.skipAi ? { storyId: story.id, summary: story.summary, acceptanceCriteria: [], designDecisions: [], assumptions: ["AI analysis was skipped."] } : await analyser.extractRequirements(story);
   const implementation = options.skipAi ? { solutionOverview: "AI analysis was skipped.", components: [], supportingChanges: [], securityChanges: [], dependencies: [], testing: { testFiles: [], sourceScenarios: [], executionStatus: "Tests were not executed by StoryDoc." as const }, deploymentNotes: [], assumptions: [] } : await analyser.analyseImplementation({ story, requirements, pullRequest, classifiedFiles });
   validateFileEvidence(implementation, pullRequest.changedFiles);

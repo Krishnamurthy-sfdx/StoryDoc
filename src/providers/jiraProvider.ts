@@ -12,26 +12,28 @@ export type JiraStoryProviderOptions = {
   bearerToken?: string;
   email?: string;
   apiToken?: string;
+  cloudId?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 };
 
 /**
- * Jira adapter intentionally asks for only the two configured custom fields.
- * Jira field IDs are configurable because custom field IDs differ by instance.
+ * Jira adapter intentionally asks for the built-in summary and two configured custom fields.
+ * Custom field IDs are configurable because they differ by Jira instance.
  */
 export class JiraStoryProvider implements StoryProvider {
   private readonly fetchImpl: typeof fetch;
 
   public constructor(private readonly options: JiraStoryProviderOptions = fromEnvironment()) {
     validateJiraBaseUrl(options.baseUrl);
+    validateJiraAuthentication(options);
     if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)) throw new Error("JIRA request timeout must be a positive integer.");
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
   public async getStory(reference: string): Promise<StoryContent> {
-    const fields = [this.options.acceptanceCriteriaField, this.options.technicalDesignField];
-    const url = new URL(`/rest/api/3/issue/${encodeURIComponent(reference)}`, this.options.baseUrl);
+    const fields = ["summary", this.options.acceptanceCriteriaField, this.options.technicalDesignField];
+    const url = this.issueUrl(reference);
     url.searchParams.set("fields", fields.join(","));
     const headers = this.headers();
     const controller = new AbortController();
@@ -56,7 +58,7 @@ export class JiraStoryProvider implements StoryProvider {
     const technicalDesign = jiraValueToText(issue.fields[this.options.technicalDesignField]);
     return {
       id: reference,
-      summary: "",
+      summary: jiraValueToText(issue.fields.summary),
       description: acceptanceCriteriaText,
       acceptanceCriteriaText,
       technicalDesign,
@@ -71,6 +73,12 @@ export class JiraStoryProvider implements StoryProvider {
     }
     throw new Error("Configure JIRA_BEARER_TOKEN or JIRA_EMAIL and JIRA_API_TOKEN before using Jira ingestion.");
   }
+
+  private issueUrl(reference: string): URL {
+    const issuePath = `/rest/api/3/issue/${encodeURIComponent(reference)}`;
+    if (this.options.cloudId) return new URL(`/ex/jira/${encodeURIComponent(this.options.cloudId)}${issuePath}`, "https://api.atlassian.com");
+    return new URL(issuePath, this.options.baseUrl);
+  }
 }
 
 function fromEnvironment(): JiraStoryProviderOptions {
@@ -80,14 +88,30 @@ function fromEnvironment(): JiraStoryProviderOptions {
   if (!baseUrl || !acceptanceCriteriaField || !technicalDesignField) {
     throw new Error("Configure JIRA_BASE_URL, JIRA_ACCEPTANCE_CRITERIA_FIELD, and JIRA_TECHNICAL_DESIGN_FIELD, or use --story-file and optional --design-file.");
   }
-  return {
+  const options = {
     baseUrl,
     acceptanceCriteriaField,
     technicalDesignField,
     bearerToken: process.env.JIRA_BEARER_TOKEN,
     email: process.env.JIRA_EMAIL,
     apiToken: process.env.JIRA_API_TOKEN,
+    cloudId: process.env.JIRA_CLOUD_ID,
   };
+  validateJiraAuthentication(options);
+  return options;
+}
+
+function validateJiraAuthentication(options: Pick<JiraStoryProviderOptions, "bearerToken" | "email" | "apiToken" | "cloudId">): void {
+  const hasBasicCredentials = Boolean(options.email || options.apiToken);
+  if (options.bearerToken && hasBasicCredentials) {
+    throw new Error("Configure either JIRA_BEARER_TOKEN or JIRA_EMAIL and JIRA_API_TOKEN, not both.");
+  }
+  if (!options.bearerToken && (!options.email || !options.apiToken)) {
+    throw new Error("Configure JIRA_BEARER_TOKEN or both JIRA_EMAIL and JIRA_API_TOKEN before using Jira ingestion.");
+  }
+  if (options.cloudId && options.bearerToken) {
+    throw new Error("JIRA_CLOUD_ID is for scoped API-token authentication. Use JIRA_EMAIL and JIRA_API_TOKEN instead of JIRA_BEARER_TOKEN.");
+  }
 }
 
 function validateJiraBaseUrl(baseUrl: string): void {

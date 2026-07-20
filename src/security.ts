@@ -25,6 +25,7 @@ const sensitivePatterns: RegExp[] = [
   /(^|\n)(\s*[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API[_-]?KEY)\s*=\s*)([^\n]+)/g,
   /(^|\n)(\s*(?:PRIVATE[_-]?KEY)\s*=\s*)([^\n]+)/g,
   /\b(?:ghp_|github_pat_|xoxb-|xoxp-|sk-)[A-Za-z0-9_\-]{12,}\b/g,
+  /\bATATT[A-Za-z0-9_=-]{20,}\b/g,
   /\b(?:Bearer|Basic)\s+[A-Za-z0-9+/._=-]{16,}\b/gi,
   /\b(?:authorization|api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|client[-_ ]?secret|password)\s*[:=]\s*["']?[^\s,"']{8,}["']?/gi,
 ];
