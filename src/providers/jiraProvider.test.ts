@@ -4,6 +4,7 @@ import { JiraStoryProvider } from "./jiraProvider.js";
 
 test("requests only summary, Acceptance Criteria, and Technical Design fields", async () => {
   let requestedUrl = "";
+  const progress: string[] = [];
   const provider = new JiraStoryProvider({
     baseUrl: "https://jira.example.com",
     acceptanceCriteriaField: "customfield_10001",
@@ -17,13 +18,15 @@ test("requests only summary, Acceptance Criteria, and Technical Design fields", 
         customfield_10002: "Create an EligibilityService Apex class.",
       } }), { status: 200, headers: { "content-type": "application/json" } });
     },
-  });
+  }, (message) => progress.push(message));
   const story = await provider.getStory("APP-142");
   assert.equal(new URL(requestedUrl).searchParams.get("fields"), "summary,customfield_10001,customfield_10002");
   assert.equal(new URL(requestedUrl).searchParams.has("expand"), false);
   assert.equal(story.acceptanceCriteriaText, "AC-1: Validate eligibility.");
   assert.equal(story.technicalDesign, "Create an EligibilityService Apex class.");
   assert.equal(story.summary, "Eligibility automation");
+  assert.match(progress[0], /summary, customfield_10001 \(Acceptance Criteria\), customfield_10002 \(Technical Design\)/);
+  assert.match(progress[1], /response received/);
 });
 
 test("uses the scoped-token gateway when a Jira cloud ID is configured", async () => {
