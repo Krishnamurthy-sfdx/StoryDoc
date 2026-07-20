@@ -5,16 +5,24 @@ import { assertDiffWithinLimit, configuredMaximumDiffBytes } from "../security.j
 import type { PullRequestProvider } from "./pullRequestProvider.js";
 
 const execFileAsync = promisify(execFile);
+type ProgressReporter = (message: string) => void;
 type GhFile = { path?: string; additions?: number; deletions?: number; status?: string; changeType?: string };
 type GhPullRequest = { number?: number; title?: string; body?: string | null; headRefName?: string; baseRefName?: string; state?: string; files?: GhFile[] };
 
 /** Uses the authenticated gh executable; StoryDoc contains no GitHub API client or token handling. */
 export class GitHubCliPullRequestProvider implements PullRequestProvider {
-  public constructor(private readonly workingDirectory: string, private readonly maximumOutputBytes = Math.max(10 * 1024 * 1024, configuredMaximumDiffBytes() + 1024 * 1024)) {}
+  public constructor(
+    private readonly workingDirectory: string,
+    private readonly maximumOutputBytes = Math.max(10 * 1024 * 1024, configuredMaximumDiffBytes() + 1024 * 1024),
+    private readonly reportProgress?: ProgressReporter,
+  ) {}
 
   public async getPullRequest(prNumber: number): Promise<PullRequestDetails> {
+    this.reportProgress?.(`[1/7] GitHub CLI: fetching PR #${prNumber} metadata and changed-file list with gh pr view...`);
     const metadata = await this.runGhJson<GhPullRequest>(["pr", "view", String(prNumber), "--json", "number,title,body,headRefName,baseRefName,state,files"]);
+    this.reportProgress?.(`[1/7] GitHub CLI: metadata received; fetching PR #${prNumber} diff with gh pr diff...`);
     const diff = await this.runGh(["pr", "diff", String(prNumber)]);
+    this.reportProgress?.(`[1/7] GitHub CLI: diff received (${Buffer.byteLength(diff, "utf8")} bytes).`);
     assertDiffWithinLimit(diff);
     const changedFiles = (metadata.files ?? []).filter((file): file is GhFile & { path: string } => Boolean(file.path)).map((file) => this.mapFile(file));
     return pullRequestSchema.parse({ number: metadata.number ?? prNumber, title: metadata.title ?? "", description: metadata.body ?? "", sourceBranch: metadata.headRefName ?? "", targetBranch: metadata.baseRefName ?? "", status: metadata.state ?? "UNKNOWN", changedFiles, diff });

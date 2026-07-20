@@ -47,8 +47,9 @@ Generated files are written to `.storydoc/<ticket>/`:
 - `analysis.json` — validated source of truth.
 - `technical-documentation.md` — Markdown rendering.
 - `technical-documentation.html` — HTML rendering.
+- `usage.json` — Terra/Luna token usage and API-equivalent cost estimate.
 
-Output directories use a sanitized ticket identifier. Existing generated files are not overwritten unless `--force` is supplied. For example, rerun with `--force` only when you intentionally want to replace all three generated files.
+Output directories use a sanitized ticket identifier. Existing generated files are not overwritten unless `--force` is supplied. For example, rerun with `--force` only when you intentionally want to replace all four generated files.
 
 StoryDoc sends only the supplied story fields and pull-request metadata/diff to the Codex analysis calls. Both models run from isolated temporary workspaces, cannot inspect the local repository, cannot use web search, and cannot modify files. Likely credentials in inputs and generated text are redacted before files are written.
 
@@ -103,6 +104,8 @@ export STORYDOC_IMPLEMENTATION_REASONING_EFFORT="high"
 
 `minimal`, `low`, `medium`, `high`, and `xhigh` are accepted reasoning-effort values. `STORYDOC_TERRA_MODEL` and `STORYDOC_LUNA_MODEL` remain supported as shorter model-name overrides. AI output is schema-validated and every cited component path must be present in the PR file list.
 
+After each model stage, StoryDoc prints input, cached-input, output, and reasoning token usage. For the default GPT-5.6 Terra and Luna models it also prints an API-equivalent USD estimate and saves it in `usage.json`. This estimate uses public API rates and is not an invoice: Codex-plan billing, discounts, credits, taxes, and organisation terms can differ.
+
 If the Codex SDK's bundled executable is unavailable or outdated in a local environment, point StoryDoc at a current authenticated Codex executable without changing application code:
 
 ```bash
@@ -138,7 +141,7 @@ Before you start, make sure you have:
 - **Salesforce CLI** - Download from [developer.salesforce.com/tools/salesforcecli](https://developer.salesforce.com/tools/salesforcecli). See [Install Salesforce CLI](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_install_cli.htm) for details.
 - **VS Code with Salesforce Extension Pack** - See [Installation Instructions](https://developer.salesforce.com/docs/platform/sfvscode-extensions/guide/install.html) for details. Includes the Agentforce Vibes extension.
 - **A development org** - Sign up for a free Developer Edition org [here](https://developer.salesforce.com/signup).
-- **Dev Hub enabled** (optional, required to create scratch orgs) - You can enable Dev Hub in your development org under Setup > Dev Hub.  See [Provide Developers Access to Salesforce DX Tools](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_setup_dx_tools.htm).
+- **Dev Hub enabled** (optional, required to create scratch orgs) - You can enable Dev Hub in your development org under Setup > Dev Hub. See [Provide Developers Access to Salesforce DX Tools](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_setup_dx_tools.htm).
 
 ## Project Structure
 

@@ -4,6 +4,7 @@ import type { StoryProvider } from "./storyProvider.js";
 
 const jiraIssueResponseSchema = z.object({ fields: z.record(z.unknown()) });
 const defaultRequestTimeoutMs = 15_000;
+type ProgressReporter = (message: string) => void;
 
 export type JiraStoryProviderOptions = {
   baseUrl: string;
@@ -24,7 +25,7 @@ export type JiraStoryProviderOptions = {
 export class JiraStoryProvider implements StoryProvider {
   private readonly fetchImpl: typeof fetch;
 
-  public constructor(private readonly options: JiraStoryProviderOptions = fromEnvironment()) {
+  public constructor(private readonly options: JiraStoryProviderOptions = fromEnvironment(), private readonly reportProgress?: ProgressReporter) {
     validateJiraBaseUrl(options.baseUrl);
     validateJiraAuthentication(options);
     if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)) throw new Error("JIRA request timeout must be a positive integer.");
@@ -35,6 +36,8 @@ export class JiraStoryProvider implements StoryProvider {
     const fields = ["summary", this.options.acceptanceCriteriaField, this.options.technicalDesignField];
     const url = this.issueUrl(reference);
     url.searchParams.set("fields", fields.join(","));
+    const source = this.options.cloudId ? "Atlassian API gateway" : "Jira site API";
+    this.reportProgress?.(`[2/7] ${source}: fetching ${reference}; fields: summary, ${this.options.acceptanceCriteriaField} (Acceptance Criteria), ${this.options.technicalDesignField} (Technical Design).`);
     const headers = this.headers();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs ?? defaultRequestTimeoutMs);
@@ -48,6 +51,7 @@ export class JiraStoryProvider implements StoryProvider {
       clearTimeout(timeout);
     }
     if (!response.ok) throw new Error(`Jira returned HTTP ${response.status} while loading ${reference}.`);
+    this.reportProgress?.(`[2/7] Jira API: response received for ${reference}; parsing the requested fields.`);
     let issue: z.infer<typeof jiraIssueResponseSchema>;
     try {
       issue = jiraIssueResponseSchema.parse(await response.json());

@@ -2,7 +2,7 @@
 import { Command } from "commander";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { CodexAnalyser } from "./ai/codexAnalyser.js";
+import { CodexAnalyser, type StoryDocModelUsage } from "./ai/codexAnalyser.js";
 import { loadLocalEnvironment } from "./config/localEnvironment.js";
 import { validateFileEvidence } from "./ai/evidenceValidator.js";
 import { buildDocumentationAnalysis } from "./documentation/buildAnalysis.js";
@@ -28,28 +28,34 @@ type GenerateOptions = { pr: number; ticket: string; storyFile?: string; designF
 
 async function generate(options: GenerateOptions): Promise<void> {
   const workingDirectory = process.cwd();
-  const prProvider = options.prFile ? new LocalPullRequestProvider(resolve(workingDirectory, options.prFile)) : new GitHubCliPullRequestProvider(workingDirectory);
-  const storyProvider = options.storyFile ? new LocalFileStoryProvider(resolve(workingDirectory, options.storyFile), options.designFile ? resolve(workingDirectory, options.designFile) : undefined) : new JiraStoryProvider();
+  const reportProgress = (message: string) => console.log(message);
+  const prProvider = options.prFile ? new LocalPullRequestProvider(resolve(workingDirectory, options.prFile)) : new GitHubCliPullRequestProvider(workingDirectory, undefined, reportProgress);
+  const storyProvider = options.storyFile ? new LocalFileStoryProvider(resolve(workingDirectory, options.storyFile), options.designFile ? resolve(workingDirectory, options.designFile) : undefined) : new JiraStoryProvider(undefined, reportProgress);
   console.log(`[1/7] Fetching pull request #${options.pr}...`);
   const pullRequest = await prProvider.getPullRequest(options.pr);
   console.log(`[1/7] Pull request loaded: ${pullRequest.changedFiles.length} changed files.`);
-  console.log(`[2/7] Fetching story ${options.ticket} from ${options.storyFile ? "local files" : "Jira"}...`);
+  console.log(`[2/7] Fetching story ${options.ticket} from ${options.storyFile ? "local files" : "Jira API"}...`);
   const story = await storyProvider.getStory(options.ticket);
   console.log(`[2/7] Story loaded: ${story.summary || story.id}.`);
   console.log("[3/7] Classifying Salesforce components changed by the pull request...");
   const classifiedFiles = classifyChangedFiles(pullRequest.changedFiles);
   console.log(`[3/7] Classified ${classifiedFiles.length} changed files.`);
-  const analyser = new CodexAnalyser();
+  const modelUsage: StoryDocModelUsage[] = [];
+  const analyser = new CodexAnalyser(undefined, (usage) => {
+    modelUsage.push(usage);
+    console.log(formatUsage(usage));
+  });
   const requirements = options.skipAi ? skippedRequirements(story) : await extractRequirementsWithProgress(analyser, story);
   const implementation = options.skipAi ? skippedImplementation() : await analyseImplementationWithProgress(analyser, { story, requirements, pullRequest, classifiedFiles });
   console.log("[6/7] Validating component evidence against the pull request...");
   validateFileEvidence(implementation, pullRequest.changedFiles);
   console.log("[6/7] Evidence validation complete.");
+  if (modelUsage.length > 0) console.log(formatUsageTotal(modelUsage));
   const document = redactSensitiveContent(buildDocumentationAnalysis({ story, requirements, pullRequest, implementation }));
   const outputDirectory = resolveStoryOutputDirectory(workingDirectory, options.outputDir, options.ticket);
   console.log(`[7/7] Writing generated documentation to ${outputDirectory}...`);
   await mkdir(outputDirectory, { recursive: true });
-  const outputFiles = [resolve(outputDirectory, "analysis.json"), resolve(outputDirectory, "technical-documentation.md"), resolve(outputDirectory, "technical-documentation.html")];
+  const outputFiles = [resolve(outputDirectory, "analysis.json"), resolve(outputDirectory, "technical-documentation.md"), resolve(outputDirectory, "technical-documentation.html"), resolve(outputDirectory, "usage.json")];
   if (!options.force) {
     const existingFiles = await Promise.all(outputFiles.map(async (file) => { try { await access(file); return file; } catch { return ""; } }));
     const existing = existingFiles.filter(Boolean);
@@ -59,6 +65,7 @@ async function generate(options: GenerateOptions): Promise<void> {
     writeFile(outputFiles[0], `${JSON.stringify(document, null, 2)}\n`, { flag: options.force ? "w" : "wx" }),
     writeFile(outputFiles[1], renderMarkdown(document), { flag: options.force ? "w" : "wx" }),
     writeFile(outputFiles[2], renderHtml(document), { flag: options.force ? "w" : "wx" }),
+    writeFile(outputFiles[3], `${JSON.stringify({ modelUsage, estimatedApiEquivalentCostUsd: totalEstimatedCost(modelUsage), note: "Estimated using public API token rates. Actual Codex-plan billing may differ." }, null, 2)}\n`, { flag: options.force ? "w" : "wx" }),
   ]);
   console.log(`Generated documentation in ${outputDirectory}`);
 }
@@ -105,6 +112,20 @@ function startProgressPulse(model: "Terra" | "Luna", activity: string): () => vo
   }, 15_000);
   timer.unref();
   return () => clearInterval(timer);
+}
+
+function formatUsage(usage: StoryDocModelUsage): string {
+  const cost = usage.estimatedApiEquivalentCostUsd === undefined ? "API-equivalent cost unavailable for this model override." : `estimated API-equivalent cost: $${usage.estimatedApiEquivalentCostUsd.toFixed(6)}.`;
+  return `[${usage.stage} usage] ${usage.model}: input ${usage.inputTokens.toLocaleString()} (${usage.cachedInputTokens.toLocaleString()} cached), output ${usage.outputTokens.toLocaleString()} (${usage.reasoningOutputTokens.toLocaleString()} reasoning); ${cost}`;
+}
+
+function totalEstimatedCost(usage: StoryDocModelUsage[]): number | undefined {
+  return usage.every((entry) => entry.estimatedApiEquivalentCostUsd !== undefined) ? usage.reduce((total, entry) => total + (entry.estimatedApiEquivalentCostUsd ?? 0), 0) : undefined;
+}
+
+function formatUsageTotal(usage: StoryDocModelUsage[]): string {
+  const total = totalEstimatedCost(usage);
+  return total === undefined ? "[Cost] API-equivalent total unavailable because at least one overridden model has no configured public rate." : `[Cost] Estimated API-equivalent model cost for this run: $${total.toFixed(6)}. Actual Codex-plan billing may differ.`;
 }
 
 function parsePositiveInteger(value: string): number { const parsed = Number(value); if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`Invalid pull request number: ${value}`); return parsed; }
