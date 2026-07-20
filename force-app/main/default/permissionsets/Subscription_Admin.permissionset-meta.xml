@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+  <applicationVisibilities>
+    <application>Subscription_Management</application>
+    <visible>true</visible>
+  </applicationVisibilities>
     <description
   >Administrative access to the subscription data model. Unlike Subscription Manager this grants edit on Status, so admins can correct records that automation normally owns. Also used by the Apex tests.</description>
     <fieldPermissions>

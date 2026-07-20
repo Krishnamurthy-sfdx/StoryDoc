@@ -98,6 +98,14 @@ them against the destination org before deploying to production.
 value. `standardValueSets/TaskPriority` includes Urgent, High, Normal and Low —
 deploying it replaces the org's existing set.
 
+## Lightning app
+
+`Subscription Management` (`Subscription_Management`) groups the story's objects into
+one app: Home, Subscriptions, Accounts, Opportunities, Contacts, Cases, Tasks,
+Error Logs, Reports and Dashboards. App visibility is granted by the Subscription
+Manager, Viewer and Admin permission sets, so assigning any of those makes the app
+appear in the App Launcher.
+
 ## Post-deployment steps
 
 1. Populate `Subscription_Automation__mdt.Default.Sales_Ops_Owner_Id__c` with the
@@ -109,6 +117,8 @@ deploying it replaces the org's existing set.
 4. Confirm `Daily_Subscription_Expiry_Check` is scheduled for 06:00 in the org
    timezone; the schedule start date is 2026-07-21.
 5. Activate the `Subscription_Record_Page` as the org default for `Subscription__c`.
+6. Open the App Launcher and confirm the **Subscription Management** app is visible
+   to the assigned users.
 
 ## Verification
 
