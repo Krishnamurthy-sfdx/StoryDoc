@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Status_Change_Guard</fullName>
+    <active>true</active>
+    <description
+  >Blocks a manual change of Status to Expired while the subscription still has days remaining. The scheduled expiry flow runs as an admin and is exempt.</description>
+    <errorConditionFormula>ISCHANGED(Status__c) &amp;&amp;
+ISPICKVAL(Status__c, &quot;Expired&quot;) &amp;&amp;
+Days_Until_Expiry__c &gt; 0 &amp;&amp;
+NOT($Permission.Bypass_Subscription_Flow)</errorConditionFormula>
+    <errorDisplayField>Status__c</errorDisplayField>
+    <errorMessage
+  >Status cannot be set to Expired while the subscription still has days remaining before its End Date.</errorMessage>
+</ValidationRule>

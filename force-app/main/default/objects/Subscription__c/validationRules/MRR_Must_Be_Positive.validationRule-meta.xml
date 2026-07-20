@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>MRR_Must_Be_Positive</fullName>
+    <active>true</active>
+    <description>MRR must be greater than zero.</description>
+    <errorConditionFormula
+  >NOT(ISBLANK(MRR__c)) &amp;&amp; MRR__c &lt;= 0</errorConditionFormula>
+    <errorDisplayField>MRR__c</errorDisplayField>
+    <errorMessage>MRR must be greater than zero.</errorMessage>
+</ValidationRule>
