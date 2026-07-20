@@ -1,0 +1,15 @@
+{
+  "number": 142,
+  "title": "Add applicant eligibility validation",
+  "description": "Adds server-side eligibility validation before submission.",
+  "sourceBranch": "feature/APP-142-eligibility",
+  "targetBranch": "main",
+  "status": "OPEN",
+  "changedFiles": [
+    { "path": "force-app/main/default/classes/EligibilityService.cls", "status": "added" },
+    { "path": "force-app/main/default/classes/EligibilityService.cls-meta.xml", "status": "added" },
+    { "path": "force-app/main/default/lwc/applicationSubmission/applicationSubmission.js", "status": "modified" },
+    { "path": "force-app/main/default/permissionsets/Application_User.permissionset-meta.xml", "status": "modified" }
+  ],
+  "diff": "diff --git a/force-app/main/default/classes/EligibilityService.cls b/force-app/main/default/classes/EligibilityService.cls\n+class EligibilityService { /* example fixture */ }"
+}

@@ -1,9 +1,16 @@
 {
-  "name": "salesforce-app",
+  "name": "storydoc",
   "private": true,
   "version": "1.0.0",
-  "description": "Salesforce App",
+  "description": "Local-first Salesforce pull-request documentation CLI",
+  "type": "module",
+  "bin": {
+    "storydoc": "dist/cli.js"
+  },
   "scripts": {
+    "build:storydoc": "tsc -p tsconfig.storydoc.json",
+    "storydoc": "node dist/cli.js",
+    "test:storydoc": "tsc -p tsconfig.storydoc.json && node --test dist/ai/codexAnalyser.test.js dist/ai/evidenceValidator.test.js dist/ai/prompts.test.js dist/documentation/render.test.js dist/providers/jiraProvider.test.js dist/salesforce/metadataClassifier.test.js dist/security.test.js",
     "lint": "eslint **/{aura,lwc}/**/*.js",
     "test": "npm run test:unit",
     "test:unit": "sfdx-lwc-jest",
@@ -28,7 +35,15 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.1.2",
     "prettier": "^3.5.3",
-    "prettier-plugin-apex": "^2.2.6"
+    "prettier-plugin-apex": "^2.2.6",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "^0.144.6",
+    "commander": "^14.0.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
   },
   "lint-staged": {
     "**/*.{cls,cmp,component,css,html,js,json,md,page,trigger,xml,yaml,yml}": [

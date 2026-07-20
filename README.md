@@ -1,4 +1,109 @@
-# Salesforce DX Project
+# StoryDoc Salesforce Project
+
+StoryDoc is a local CLI for generating Salesforce technical documentation from a pull request. It uses an authenticated `gh` executable for PR-number ingestion, JIRA for the two configured requirement fields, and the Codex SDK in a read-only isolated workspace. Terra performs focused requirement extraction; Luna High performs the more complex implementation analysis.
+
+## StoryDoc CLI
+
+Install dependencies and build the CLI:
+
+```bash
+pnpm install
+pnpm run build:storydoc
+```
+
+Run the verified local fixture without AI calls:
+
+```bash
+pnpm run storydoc -- generate \
+  --pr 142 --ticket APP-142 \
+  --pr-file examples/pr-142.json \
+  --story-file examples/story.md \
+  --design-file examples/design.md \
+  --skip-ai
+```
+
+Run the same fixture through Terra and Luna:
+
+```bash
+pnpm run storydoc -- generate \
+  --pr 142 --ticket APP-142 \
+  --pr-file examples/pr-142.json \
+  --story-file examples/story.md \
+  --design-file examples/design.md
+```
+
+Run against a real PR created from VS Code after installing and authenticating the GitHub CLI:
+
+```bash
+# Install gh first if it is not already available on PATH.
+gh auth login
+pnpm run storydoc -- generate --pr 142 --ticket APP-142
+```
+
+StoryDoc invokes `gh pr view` and `gh pr diff`; it does not contain a GitHub API client or GitHub token handling.
+
+Generated files are written to `.storydoc/<ticket>/`:
+
+- `analysis.json` — validated source of truth.
+- `technical-documentation.md` — Markdown rendering.
+- `technical-documentation.html` — HTML rendering.
+
+Output directories use a sanitized ticket identifier. Existing generated files are not overwritten unless `--force` is supplied. For example, rerun with `--force` only when you intentionally want to replace all three generated files.
+
+StoryDoc sends only the supplied story fields and pull-request metadata/diff to the Codex analysis calls. Both models run from isolated temporary workspaces, cannot inspect the local repository, cannot use web search, and cannot modify files. Likely credentials in inputs and generated text are redacted before files are written.
+
+### JIRA configuration
+
+The live JIRA provider requests only the two configured fields. Custom field IDs differ by JIRA instance, so configure them explicitly:
+
+```bash
+export JIRA_BASE_URL="https://your-company.atlassian.net"
+export JIRA_ACCEPTANCE_CRITERIA_FIELD="customfield_12345"
+export JIRA_TECHNICAL_DESIGN_FIELD="customfield_12346"
+export JIRA_EMAIL="developer@example.com"
+export JIRA_API_TOKEN="..."
+```
+
+JIRA requests require HTTPS and time out after 15 seconds by default. Set `STORYDOC_MAX_DIFF_BYTES` to change the default 5 MB pull-request diff limit.
+
+Alternatively use `JIRA_BEARER_TOKEN`. The request is equivalent to:
+
+```text
+GET /rest/api/3/issue/APP-142?fields=<acceptance-criteria-field>,<technical-design-field>
+```
+
+No JIRA summary, description, or other fields are requested. If JIRA is not configured, use `--story-file` and optional `--design-file`.
+
+With those variables configured, invoke live JIRA ingestion with:
+
+```bash
+pnpm run storydoc -- generate --pr 142 --ticket APP-142
+```
+
+### Codex model configuration
+
+The default routing uses Terra with low reasoning effort for requirement extraction and Luna with high reasoning effort for implementation analysis:
+
+```bash
+export STORYDOC_REQUIREMENTS_MODEL="gpt-5.6-terra"
+export STORYDOC_REQUIREMENTS_REASONING_EFFORT="low"
+export STORYDOC_IMPLEMENTATION_MODEL="gpt-5.6-luna"
+export STORYDOC_IMPLEMENTATION_REASONING_EFFORT="high"
+```
+
+`minimal`, `low`, `medium`, `high`, and `xhigh` are accepted reasoning-effort values. `STORYDOC_TERRA_MODEL` and `STORYDOC_LUNA_MODEL` remain supported as shorter model-name overrides. AI output is schema-validated and every cited component path must be present in the PR file list.
+
+Run StoryDoc unit tests:
+
+```bash
+pnpm run test:storydoc
+```
+
+The GitHub Actions workflow at `.github/workflows/storydoc.yml` runs this same command on pushes and pull requests.
+
+---
+
+## Salesforce DX Project
 
 Salesforce DX is a development approach that brings source-driven development, team collaboration, and continuous integration to the Salesforce Platform. Instead of working directly in an org through a web browser, you work with metadata as source files in a local DX project, track changes in version control, and deploy through automated processes.
 
