@@ -37,11 +37,13 @@ StoryDoc automates it. You give it two things:
 1. **A pull request number** — so it can read the actual code changes.
 2. **A ticket reference** — so it can read the requirements (what was _supposed_ to be built).
 
-It then uses AI to compare the requirements against the real code changes and produces three files:
+It then uses AI to compare the requirements against the real code changes and produces five files:
 
 - `analysis.json` — the raw, structured data (the "source of truth").
 - `technical-documentation.md` — a readable Markdown document.
 - `technical-documentation.html` — the same document as a styled web page.
+- `usage.json` — how many tokens each AI pass consumed, plus an API-equivalent cost estimate. This is **temporary diagnostic output** expected to be removed later (see Topic 7).
+- `compression-audit.json` — before and after metrics for the diff-compression optimization applied before Luna's analysis (see Topic 7).
 
 It is **local-first**: everything runs on your own machine. There is no StoryDoc server, no database, and no data is stored anywhere except your own disk.
 
@@ -53,19 +55,32 @@ The project targets **Salesforce** development specifically — it knows how to 
 
 When you run `storydoc generate --pr 142 --ticket APP-142`, this happens, in order:
 
-```
- Step 1              Step 2              Step 3                Step 4
- Load the PR   →   Load the story  →   Classify the     →   AI Pass 1: "Terra"
- (from GitHub       (from Jira or       changed files         reads the story and
-  or a local        local Markdown      (which Salesforce     extracts a clean list
-  JSON file)        files)              type is each file?)   of requirements
+```mermaid
+graph LR
+    A["<b>Step 1</b><br/>Load the PR<br/>(GitHub/JSON)"]
+    B["<b>Step 2</b><br/>Load the Story<br/>(Jira/Markdown)"]
+    C["<b>Step 3</b><br/>Classify Files<br/>(Salesforce types)"]
+    D["<b>Step 4</b><br/>Compress Diff<br/>(Filter noise)"]
+    E["<b>Step 5</b><br/>Terra 🌍<br/>(Extract requirements)"]
+    F["<b>Step 6</b><br/>Luna 🌙<br/>(Analyze code)"]
+    G["<b>Step 7</b><br/>Safety Checks<br/>(Validate/redact)"]
+    H["<b>Step 8</b><br/>Write Output<br/>(5 files)"]
 
- Step 5                        Step 6                  Step 7
- AI Pass 2: "Luna"       →     Safety checks     →     Write the output
- reads the code diff and       (validate paths,        (JSON + Markdown
- explains how each change      redact secrets)          + HTML files)
- fulfils the requirements
+    A --> B --> C --> D --> E --> F --> G --> H
+
+    style A fill:#667eea,stroke:#764ba2,stroke-width:2px,color:#fff
+    style B fill:#667eea,stroke:#764ba2,stroke-width:2px,color:#fff
+    style C fill:#f093fb,stroke:#f5576c,stroke-width:2px,color:#fff
+    style D fill:#f093fb,stroke:#f5576c,stroke-width:2px,color:#fff
+    style E fill:#4facfe,stroke:#00f2fe,stroke-width:2px,color:#fff
+    style F fill:#4facfe,stroke:#00f2fe,stroke-width:2px,color:#fff
+    style G fill:#43e97b,stroke:#38f9d7,stroke-width:2px,color:#fff
+    style H fill:#fa709a,stroke:#fee140,stroke-width:2px,color:#333
 ```
+
+**Color guide:** 🔵 Input · 🔴 Processing · 🔵 AI Analysis · 🟢 Validation · 🟡 Output
+
+Every one of these steps prints a numbered progress line (`[1/7]`, `[2/7]`, etc.) to the terminal as it happens, so a long run never looks frozen. The compression step is included in the `[3/7]` output. See Section 4 for the details.
 
 Two important design principles run through the whole codebase:
 
@@ -143,7 +158,25 @@ The one command is `generate`, with these options:
 
 The `generate` function in `cli.ts` is the **conductor**: it doesn't do any real work itself, it just calls each module in the right order (the seven steps from Section 2). If any step throws an error, the CLI prints one clear message and exits with a failure code — it never half-writes output.
 
-One detail worth understanding: **overwrite protection**. Before writing, StoryDoc checks whether output files already exist. If they do and you did not pass `--force`, it stops. When it does write, it uses the file-system flag `wx` ("write, but fail if the file exists") so that even a race condition can't silently overwrite files. With `--force` it uses the normal `w` flag.
+### Progress logging
+
+A real run can take minutes — the Luna pass in particular thinks for a long time. To stop it looking hung, the CLI narrates itself:
+
+- **Numbered step lines.** Each of the seven steps prints when it starts and when it finishes, with a useful count: `[1/7] Pull request loaded: 12 changed files.`, `[3/7] Classified 12 changed files.`, `[4/7] Terra complete: 5 acceptance criteria and 3 design decisions extracted.`
+- **Sub-step lines from the providers.** The CLI passes a small `reportProgress` callback — a function that just prints a string — into `GitHubCliPullRequestProvider` and `JiraStoryProvider`. Those classes call it at each network stage (`gh pr view` started, metadata received, `gh pr diff` received with its byte size; Jira request issued naming the exact fields, Jira response received). The callback is **optional**, so the providers stay perfectly usable in tests and elsewhere without printing anything — a small example of dependency injection again (Topic 11).
+- **Heartbeat pulses during the AI passes.** `startProgressPulse` sets a 15-second interval that prints `[Luna] still analyzing the pull-request diff and Salesforce metadata (45s elapsed)...`. The timer is `unref()`'d — meaning it does not by itself keep the Node.js process alive — and is always cleared in a `finally` block, so it can never outlive the step it is reporting on.
+
+### Diff compression and Salesforce noise filtering
+
+Luna's job is expensive: it must understand the entire code diff to explain how each change fulfils the requirements. The larger the diff, the more tokens consumed.
+
+The CLI compresses the diff before passing it to Luna:
+
+- **File filtering.** The `filterSalesforceNoise` function drops files that add little signal: all `.cls-meta.xml`, `.profile-meta.xml`, `.permissionset-meta.xml`, `package-lock.json`, and anything under a `translations/` folder. The original file list is preserved and written to the `compression-audit.json`, so code review can always verify that an important file wasn't accidentally filtered.
+- **Diff hunks.** The `extractDiffHunks` function keeps all file headers, hunk headers (`@@ ...`), and changed lines (`+` or `-`), but strips unchanged context lines down to at most two on either side of each changed region. This is enough context to understand the change but removes verbose pre-surrounding boilerplate.
+- **Metrics.** The audit records before and after counts: how many files were filtered, the diff byte count before and after, and the reduction percentage. Developers and reviewers can use this to catch aggressive filtering that might be losing important context.
+
+One detail worth understanding: **overwrite protection**. The check runs before fetching the PR or story, so you can't accidentally trigger long I/O only to have it fail during the write phase. When it does write, it uses the file-system flag `wx` ("write, but fail if the file exists") so that even a race condition can't silently overwrite files. With `--force` it uses the normal `w` flag.
 
 ---
 
@@ -211,6 +244,7 @@ Implementation details a junior developer should understand:
 - **Size limits.** The output buffer is capped, and the diff is checked against a configurable maximum (5 MB by default, changeable with the `STORYDOC_MAX_DIFF_BYTES` environment variable). A gigantic PR fails with a clear message instead of crashing or blowing up the AI's input.
 - **Status normalisation.** GitHub reports file statuses in slightly varying formats; the provider maps them all onto the small fixed set our schema allows, falling back to `"changed"` for anything unrecognised.
 - **Validation.** The final assembled object is passed through `pullRequestSchema.parse(...)` before being returned.
+- **Optional progress reporting.** Like the Jira provider, it takes an optional `reportProgress` callback and calls it around each `gh` invocation — including the byte size of the fetched diff, which is the number that matters when you hit the size limit below.
 
 The local alternative (`localPullRequestProvider.ts`) just reads a JSON file, validates it with the same schema, and double-checks that the PR number inside the file matches the `--pr` you asked for (so you can't accidentally document the wrong fixture).
 
@@ -222,7 +256,7 @@ The local alternative (`localPullRequestProvider.ts`) just reads a JSON file, va
 
 **Jira** is Atlassian's ticket-tracking system. Its **REST API** lets programs fetch ticket data over HTTPS.
 
-StoryDoc's Jira integration is deliberately minimal — it requests **only two fields** from the ticket: the acceptance-criteria field and the technical-design field. It does not pull the whole ticket. Because every Jira installation gives custom fields different internal IDs (like `customfield_12345`), the field IDs are configurable through environment variables.
+StoryDoc's Jira integration is deliberately minimal — it requests **only three fields** from the ticket: the standard `summary`, the acceptance-criteria field, and the technical-design field. It does not pull the whole ticket. Because every Jira installation gives custom fields different internal IDs (like `customfield_12345`), the two custom field IDs are configurable through environment variables. (`summary` is a built-in Jira field with the same name everywhere, so it needs no configuration; it supplies the title of the generated document.)
 
 ### Configuration through a local `.env` file
 
@@ -255,6 +289,7 @@ Robustness and security features built into the provider:
 - **Timeout.** Every request is aborted after 15 seconds (using an `AbortController`) so the CLI never hangs forever.
 - **Response validation.** The response is parsed with a Zod schema; a malformed response produces a clear error, not a mysterious crash later.
 - **Ticket reference is URL-encoded** before being placed in the URL, so special characters cannot alter the request path.
+- **Optional progress reporting.** A second, optional constructor argument is a `reportProgress` callback. When the CLI supplies one, the provider announces which endpoint it is calling (`Atlassian API gateway` vs `Jira site API`) and exactly which field IDs it asked for — which makes misconfigured custom-field IDs obvious immediately. When it is omitted (as in tests), the provider is silent.
 
 One more concept: Jira rich-text fields are stored in **ADF (Atlassian Document Format)** — a nested JSON tree of paragraphs, lists, and text nodes rather than plain text. The helper `jiraValueToText` walks this tree recursively and flattens it into plain text, inserting line breaks between paragraphs and list items.
 
@@ -298,7 +333,7 @@ Terra receives the story text and technical design, and must produce a clean, st
 
 ### Pass 2 — "Luna" (implementation analysis)
 
-Luna receives the requirements Terra produced, plus the PR metadata, the classified file list, and the full diff. Its job is to explain **how the code changes fulfil each requirement**: per-component summaries, implementation details, security-relevant changes, dependencies, testing changes, deployment notes.
+Luna receives the requirements Terra produced, plus the PR metadata, the classified file list, and the full diff. Before Luna sees the diff, it is **compressed** (Salesforce noise filtered, hunks trimmed to 2 lines of context) to reduce token consumption. Luna's job is to explain **how the code changes fulfil each requirement**: per-component summaries, implementation details, security-relevant changes, dependencies, testing changes, deployment notes. The compression audit is written to `compression-audit.json` so reviewers can always verify nothing critical was filtered.
 
 ### The safety architecture around both passes
 
@@ -311,7 +346,28 @@ This part is important and was strengthened in the recent changes:
 5. **Validate, then retry once.** The response is parsed as JSON and validated with Zod. If it fails, StoryDoc sends the model _one_ correction message containing the validation error and asks it to fix its answer. If the second attempt also fails, StoryDoc gives up with a clear error. One retry keeps costs bounded and behaviour predictable.
 6. **The AI can never claim tests passed** — the literal-string trick from Topic 2.
 
-If you pass `--skip-ai`, both passes are skipped and replaced with honest placeholder text ("AI analysis was skipped."), which is great for testing the rest of the pipeline quickly and cheaply.
+### Token usage and cost estimation
+
+> **This is temporary diagnostic instrumentation.** It exists to give visibility into what a run costs while the tool is being tuned, and is marked in the code (`src/ai/codexAnalyser.ts`, `src/cli.ts`) as removable. When that visibility is no longer needed, the whole feature comes out together: the `reportUsage` callback, the `modelUsage` collector in the CLI, and the `usage.json` output. Do not build anything that depends on `usage.json` being present.
+
+Every call to an AI model consumes **tokens** (roughly, pieces of words) and therefore costs money. StoryDoc measures and reports this.
+
+The Codex SDK returns a `usage` object with each turn. `CodexAnalyser` takes an optional second constructor argument — a `reportUsage` callback — and calls it once per pass with a `StoryDocModelUsage` record: the stage (`Terra`/`Luna`), the model name, and four counts: `inputTokens`, `cachedInputTokens`, `outputTokens`, and `reasoningOutputTokens`.
+
+Three details worth understanding:
+
+- **Cached input is cheaper.** Providers charge a reduced rate for input tokens they have already seen and cached. So the cost formula splits input into cached and uncached parts: `(inputTokens − cachedInputTokens)` is billed at the full input rate and `cachedInputTokens` at the cached rate.
+- **Retries are counted too.** If the first response fails validation and the correction attempt runs (point 5 above), both turns' usage is summed with `addUsage` before being reported. You are shown what the run actually cost, not what a perfect run would have cost.
+- **The estimate is honest about its limits.** Public per-million-token rates are hard-coded for the two default models only (`gpt-5.6-terra` and `gpt-5.6-luna`). If you override the model via the environment variables, `estimateApiEquivalentCost` returns `undefined` and StoryDoc says the cost is unavailable rather than inventing a number. Even when a figure is shown, it is an **API-equivalent estimate**, not an invoice — Codex-plan billing, discounts, credits, and taxes can all differ, and every printed total says so.
+
+The CLI prints a per-stage line after each pass and a combined `[Cost]` total, then writes the same data to `usage.json` alongside the documentation:
+
+```
+[Terra usage] gpt-5.6-terra: input 12,340 (8,192 cached), output 1,210 (640 reasoning); estimated API-equivalent cost: $0.028705.
+[Cost] Estimated API-equivalent model cost for this run: $0.184213. Actual Codex-plan billing may differ.
+```
+
+If you pass `--skip-ai`, both passes are skipped and replaced with honest placeholder text ("AI analysis was skipped."), which is great for testing the rest of the pipeline quickly and cheaply. `usage.json` is still written in that case, recording an empty usage list and a zero cost.
 
 ---
 
@@ -383,7 +439,7 @@ Assumptions from both AI passes are combined into a single "Assumptions" list, s
 
 ## 14. Topic 11: Testing
 
-There are 20 unit tests (all passing), run with Node's built-in test runner — no extra test framework needed:
+There are 21 unit tests (all passing), run with Node's built-in test runner — no extra test framework needed:
 
 ```bash
 npx tsc -p tsconfig.storydoc.json   # compile
@@ -392,16 +448,16 @@ npm run test:storydoc               # compile + run all tests
 
 What each test file proves:
 
-| Test file                    | What it proves                                                                                                                                                                        |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jiraProvider.test.ts`       | Only the two configured fields are requested; cloud-ID requests route through Atlassian's gateway; conflicting auth setups are rejected (uses a fake `fetch` — no real network call). |
-| `metadataClassifier.test.ts` | Apex sidecar files, LWC folder grouping, and metadata-suffix stripping all classify correctly.                                                                                        |
-| `evidenceValidator.test.ts`  | Invented file paths are rejected; real ones pass.                                                                                                                                     |
-| `prompts.test.ts`            | Prompts wrap untrusted content in data markers and redact secrets.                                                                                                                    |
-| `codexAnalyser.test.ts`      | Model/effort configuration resolves correctly from environment variables, and bad effort values are rejected.                                                                         |
-| `localEnvironment.test.ts`   | `.env` parsing works, shell variables are never overridden, and insecure file permissions are refused.                                                                                |
-| `render.test.ts`             | Markdown/HTML rendering works and HTML output is escaped.                                                                                                                             |
-| `security.test.ts`           | Ticket sanitising blocks path traversal; redaction removes credentials recursively.                                                                                                   |
+| Test file                    | What it proves                                                                                                                                                                                                                            |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jiraProvider.test.ts`       | Only `summary` plus the two configured fields are requested; progress messages name those fields; cloud-ID requests route through Atlassian's gateway; conflicting auth setups are rejected (uses a fake `fetch` — no real network call). |
+| `metadataClassifier.test.ts` | Apex sidecar files, LWC folder grouping, and metadata-suffix stripping all classify correctly.                                                                                                                                            |
+| `evidenceValidator.test.ts`  | Invented file paths are rejected; real ones pass.                                                                                                                                                                                         |
+| `prompts.test.ts`            | Prompts wrap untrusted content in data markers and redact secrets.                                                                                                                                                                        |
+| `codexAnalyser.test.ts`      | Model/effort configuration resolves correctly from environment variables, and bad effort values are rejected.                                                                                                                             |
+| `localEnvironment.test.ts`   | `.env` parsing works, shell variables are never overridden, and insecure file permissions are refused.                                                                                                                                    |
+| `render.test.ts`             | Markdown/HTML rendering works and HTML output is escaped.                                                                                                                                                                                 |
+| `security.test.ts`           | Ticket sanitising blocks path traversal; redaction removes credentials recursively.                                                                                                                                                       |
 
 The same suite (plus the secret scan) also runs automatically in CI on every push.
 
@@ -450,10 +506,12 @@ StoryDoc loads `.env` automatically at startup (without overriding anything alre
 ## 16. What Is Still Pending
 
 1. **Live Jira verification.** The Jira client code is complete (including scoped cloud-ID authentication) but has not yet been run against a real Jira instance. Fill in `.env` with your instance's real cloud ID and custom-field IDs and try one real ticket.
-2. **Jira summary field.** The provider still requests only the two custom fields, so the story's built-in Summary is left blank (document titles fall back to a generic heading). Adding Jira's standard `summary` (and possibly `description`) field to the request is a small, worthwhile improvement.
+2. **Jira description field.** `summary` is now requested alongside the two custom fields, so document titles are correct. Adding Jira's standard `description` field is a remaining small improvement.
 3. **Live AI smoke test.** The `--skip-ai` path is verified end to end; a full run through Terra and Luna still needs to be exercised once with your Codex setup (confirm the default model names exist, or override them via the model environment variables).
 4. **Live GitHub test.** Running against a real PR with `gh` has not been done yet.
-5. **Renderer polish.** The Markdown-to-HTML conversion is a simple regex-based approach. It is safe (everything is escaped) but produces slightly untidy HTML; a proper Markdown library would improve it.
+5. **Tune noise-filter rules.** The hardcoded list of noisy file suffixes and folder names is a starting point. If real PRs reveal that something important is being filtered (or conversely, that noise is slipping through), update `src/ai/diffCompression.ts` to tighten the rules.
+6. **Retire the cost instrumentation.** The token-usage and cost reporting is explicitly marked temporary. Once the tool's running costs are understood, remove the `reportUsage` callback, the CLI collector, and the `usage.json` output. (If it is instead kept long term, the hard-coded rate table — which only covers the two default models — should be made configurable first.)
+7. **Renderer polish.** The Markdown-to-HTML conversion is a simple regex-based approach. It is safe (everything is escaped) but produces slightly untidy HTML; a proper Markdown library would improve it.
 
 ---
 
@@ -497,3 +555,10 @@ StoryDoc loads `.env` automatically at startup (without overriding anything alre
 | **Secret scan**                 | An automated search of committed files for anything shaped like a credential, failing the build if found.            |
 | **JSON Schema**                 | A standard format for describing JSON shapes; given to the AI as its output contract.                                |
 | **Literal type**                | A field that may only ever hold one exact value — used to stop the AI claiming tests ran.                            |
+| **Token**                       | The unit AI models read and write (roughly a piece of a word); models are billed per million tokens.                 |
+| **Cached input tokens**         | Input the provider has already seen and stored, billed at a reduced rate; tracked separately in the cost estimate.   |
+| **Reasoning tokens**            | Output tokens the model spends "thinking" before its visible answer; counted and reported per stage.                 |
+| **Callback**                    | A function passed into another component so it can report back — used here for progress and usage reporting.         |
+| **Diff compression**            | Removing unchanged context lines and filtering noisy files from a diff before sending it to the AI; saves tokens.    |
+| **Hunk (in diff format)**       | A contiguous changed region in a file, bounded by `@@` headers and surrounded by context lines showing surroundings. |
+| **Metadata sidecar**            | A separate XML file accompanying a Salesforce component — e.g. `AccountService.cls-meta.xml` paired with the `.cls`. |

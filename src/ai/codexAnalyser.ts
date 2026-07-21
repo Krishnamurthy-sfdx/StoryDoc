@@ -90,7 +90,7 @@ export class CodexAnalyser {
   }
 
   private async runStructured<T>(thread: ReturnType<Codex["startThread"]>, prompt: string, schema: ZodType<T>, modelName: "Terra" | "Luna", model: string): Promise<T> {
-    const outputSchema = toCodexOutputSchema(schema);
+    const outputSchema = zodToJsonSchema(schema, { target: "openAi" });
     let firstError = "";
     let usage = emptyUsage();
     try {
@@ -112,11 +112,6 @@ export class CodexAnalyser {
       throw new Error(`${modelName} failed schema validation after one correction attempt: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-}
-
-/** Codex response schemas must not contain nested relative references. */
-export function toCodexOutputSchema<T>(schema: ZodType<T>): ReturnType<typeof zodToJsonSchema> {
-  return zodToJsonSchema(schema, { target: "openAi", $refStrategy: "none" });
 }
 
 type TokenUsage = Pick<Usage, "input_tokens" | "cached_input_tokens" | "output_tokens" | "reasoning_output_tokens">;

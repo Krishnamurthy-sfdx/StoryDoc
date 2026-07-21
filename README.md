@@ -1,17 +1,98 @@
-# StoryDoc Salesforce Project
+# StoryDoc
 
-StoryDoc is a local CLI for generating Salesforce technical documentation from a pull request. It uses an authenticated `gh` executable for PR-number ingestion, Jira for the issue summary and two configured requirement fields, and the Codex SDK in a read-only isolated workspace. Terra performs focused requirement extraction; Luna High performs the more complex implementation analysis.
+> **Automatically generate Salesforce technical documentation from a pull request.**
 
-## StoryDoc CLI
+[![CI](https://github.com/Krishnamurthy-sfdx/StoryDoc/actions/workflows/storydoc.yml/badge.svg)](https://github.com/Krishnamurthy-sfdx/StoryDoc/actions/workflows/storydoc.yml)
 
-Install dependencies and build the CLI:
+StoryDoc is a **local-first** command-line tool that reads a pull request and its originating story, then uses AI to produce clear technical documentation explaining _what_ was built and _how_ it fulfils each requirement. Everything runs on your machine — there is no StoryDoc server, database, or telemetry.
+
+It targets **Salesforce** development specifically: it recognises Apex classes, Lightning Web Components, Flows, Permission Sets, and other metadata types.
+
+---
+
+## Table of Contents
+
+- [How It Works](#how-it-works)
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Generated Output](#generated-output)
+- [Configuration](#configuration)
+  - [Jira](#jira)
+  - [Codex Models](#codex-models)
+- [Security](#security)
+- [Testing](#testing)
+- [Documentation](#documentation)
+
+---
+
+## How It Works
+
+```mermaid
+graph LR
+    A["<b>1</b><br/>Load PR<br/>(GitHub/JSON)"]
+    B["<b>2</b><br/>Load Story<br/>(Jira/Markdown)"]
+    C["<b>3</b><br/>Classify Files<br/>(Salesforce types)"]
+    D["<b>4</b><br/>Compress Diff<br/>(filter noise)"]
+    E["<b>5</b><br/>Terra 🌍<br/>(extract requirements)"]
+    F["<b>6</b><br/>Luna 🌙<br/>(analyze code)"]
+    G["<b>7</b><br/>Safety Checks<br/>(validate/redact)"]
+    H["<b>8</b><br/>Write Output<br/>(5 files)"]
+
+    A --> B --> C --> D --> E --> F --> G --> H
+
+    style A fill:#667eea,stroke:#764ba2,color:#fff
+    style B fill:#667eea,stroke:#764ba2,color:#fff
+    style C fill:#f093fb,stroke:#f5576c,color:#fff
+    style D fill:#f093fb,stroke:#f5576c,color:#fff
+    style E fill:#4facfe,stroke:#00f2fe,color:#fff
+    style F fill:#4facfe,stroke:#00f2fe,color:#fff
+    style G fill:#43e97b,stroke:#38f9d7,color:#fff
+    style H fill:#fa709a,stroke:#fee140,color:#333
+```
+
+Two AI passes do the work: **Terra** extracts a clean list of requirements from the story, and **Luna** analyses the code diff to explain how each change fulfils them. Both run in an isolated, offline, read-only sandbox.
+
+---
+
+## Features
+
+- **Local-first & private** — no server, no database; your code and credentials never leave your machine.
+- **Two-pass AI analysis** — Terra (requirements) and Luna (implementation) via the OpenAI Codex SDK.
+- **Salesforce-aware** — classifies Apex, LWC, Aura, Flows, Permission Sets, and more.
+- **Grounded output** — every file the AI cites must exist in the PR, or the run fails. No documentation is better than wrong documentation.
+- **Secret-safe** — credentials in inputs and generated text are redacted before anything is written; a repo-wide secret scan runs in CI.
+- **Pluggable sources** — read PRs from the `gh` CLI or a JSON fixture, and stories from Jira or local Markdown.
+- **Cost visibility** — reports token usage and an API-equivalent cost estimate per run.
+
+---
+
+## Prerequisites
+
+| Requirement           | Notes                                                                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Node.js ≥ 20.12**   | The CLI is built and run with Node.                                                                                                              |
+| **pnpm**              | Package manager used by this repo.                                                                                                               |
+| **GitHub CLI (`gh`)** | Required only for live PR ingestion. Authenticate once with `gh auth login`. StoryDoc contains no GitHub token handling — it shells out to `gh`. |
+| **Jira access**       | Optional. Required only for live story ingestion; otherwise use `--story-file`.                                                                  |
+| **Codex SDK**         | Bundled as a dependency. Required for real AI runs (not needed with `--skip-ai`).                                                                |
+
+---
+
+## Installation
 
 ```bash
 pnpm install
 pnpm run build:storydoc
 ```
 
-Run the verified local fixture without AI calls:
+---
+
+## Quick Start
+
+Try StoryDoc immediately with the bundled fixtures — no GitHub, Jira, or AI required:
 
 ```bash
 pnpm run storydoc generate \
@@ -22,47 +103,68 @@ pnpm run storydoc generate \
   --skip-ai
 ```
 
-Run the same fixture through Terra and Luna:
+Output is written to `.storydoc/APP-142/`. Drop `--skip-ai` to run the same fixtures through Terra and Luna (requires a working local Codex setup).
+
+---
+
+## Usage
 
 ```bash
-pnpm run storydoc generate \
-  --pr 142 --ticket APP-142 \
-  --pr-file examples/pr-142.json \
-  --story-file examples/story.md \
-  --design-file examples/design.md
+pnpm run storydoc generate [options]
 ```
 
-Run against a real PR created from VS Code after installing and authenticating the GitHub CLI:
+| Option                 | Required | Description                                                                           |
+| ---------------------- | :------: | ------------------------------------------------------------------------------------- |
+| `--pr <number>`        |    ✅    | Pull request number to document. Must be a positive integer.                          |
+| `--ticket <id>`        |    ✅    | Story/Jira reference (e.g. `APP-142`). Also used as the output folder name.           |
+| `--story-file <path>`  |          | Read the story from a local Markdown file instead of Jira.                            |
+| `--design-file <path>` |          | Local Markdown file with the technical design.                                        |
+| `--pr-file <path>`     |          | Read the PR from a local JSON file instead of GitHub.                                 |
+| `--output-dir <path>`  |          | Output directory. Defaults to `.storydoc`.                                            |
+| `--force`              |          | Overwrite previously generated files. Without it, StoryDoc refuses to overwrite.      |
+| `--skip-ai`            |          | Skip both AI passes and produce a structural report. Useful for testing the plumbing. |
+
+**Live run** against a real PR (from a repo you have checked out, with `gh` authenticated):
 
 ```bash
-# Install gh first if it is not already available on PATH.
-gh auth login
+gh auth login                    # one time
 pnpm run storydoc generate --pr 142 --ticket APP-142
 ```
 
-StoryDoc invokes `gh pr view` and `gh pr diff`; it does not contain a GitHub API client or GitHub token handling.
+StoryDoc invokes `gh pr view` and `gh pr diff` under the hood.
 
-Generated files are written to `.storydoc/<ticket>/`:
+---
 
-- `analysis.json` — validated source of truth.
-- `technical-documentation.md` — concise Markdown Salesforce Technical Design Document suitable for uploading to Confluence, with story overview, solution overview, implementation details, testing, deployment notes, and assumptions.
-- `usage.json` — Terra/Luna token usage and API-equivalent cost estimate.
-- `compression-audit.json` — redacted before/after file lists and diffs, plus size-reduction metrics.
+## Generated Output
 
-Output directories use a sanitized ticket identifier. Existing generated files are not overwritten unless `--force` is supplied. For example, rerun with `--force` only when you intentionally want to replace all four generated files.
+Files are written to `.storydoc/<ticket>/` (the ticket is sanitized into a safe folder name):
 
-StoryDoc sends only the supplied story fields and pull-request metadata/diff to the Codex analysis calls. Both models run from isolated temporary workspaces, cannot inspect the local repository, cannot use web search, and cannot modify files. Likely credentials in inputs and generated text are redacted before files are written.
+| File                           | Description                                                                                  |
+| ------------------------------ | -------------------------------------------------------------------------------------------- |
+| `analysis.json`                | Validated, structured source of truth.                                                       |
+| `technical-documentation.md`   | Human-readable Markdown documentation.                                                       |
+| `technical-documentation.html` | The same document as a styled, self-contained web page.                                      |
+| `usage.json`                   | Terra/Luna token usage and an API-equivalent cost estimate. _(Temporary diagnostic output.)_ |
+| `compression-audit.json`       | Diff-compression metrics — files and bytes before/after filtering and hunking.               |
 
-### Jira configuration and secret safety
+Existing files are never overwritten unless you pass `--force`.
 
-Every user connects their own Jira instance through a local `.env` file. StoryDoc loads this file automatically, never overwrites variables already supplied by the shell or CI environment, and refuses a group- or world-readable `.env` file on macOS/Linux.
+---
+
+## Configuration
+
+Configuration is read from environment variables, most conveniently via a local `.env` file. StoryDoc loads it automatically at startup, **never overrides variables already set** in your shell or CI, and refuses a group- or world-readable `.env` on macOS/Linux.
 
 ```bash
 cp .env.example .env
 chmod 600 .env
 ```
 
-Edit only `.env`; it is ignored by Git. Use the placeholders in `.env.example` to configure the Jira base URL, cloud ID, email, and the two custom fields. For a scoped Atlassian API token, use read-only Jira access and set these values:
+`.env` is git-ignored. Never commit it, paste a token into a PR or chat, or place a token in a command saved to shell history. If a token is exposed, revoke it and issue a replacement. For CI, store values in the provider's encrypted secret store — not in workflow YAML.
+
+### Jira
+
+StoryDoc requests only three fields from a ticket — `summary`, the acceptance-criteria field, and the technical-design field — never the whole issue:
 
 ```dotenv
 JIRA_BASE_URL=https://your-company.atlassian.net
@@ -73,27 +175,23 @@ JIRA_ACCEPTANCE_CRITERIA_FIELD=customfield_12345
 JIRA_TECHNICAL_DESIGN_FIELD=customfield_12346
 ```
 
-Never commit `.env`, paste a real token into a pull request or chat, or put it in a command that will be saved in shell history. If a token is exposed, revoke it in Atlassian and create a replacement. For CI, store the same values in the CI provider's encrypted-secret store and inject them as environment variables; do not write them into workflow YAML.
-
-Scoped Atlassian API tokens require `JIRA_CLOUD_ID`; StoryDoc then calls Atlassian's API gateway with HTTP Basic authentication. A legacy unscoped token can omit `JIRA_CLOUD_ID` and use the site URL directly. An organisation-managed bearer-token integration may use `JIRA_BEARER_TOKEN` instead, but it must not be configured alongside `JIRA_EMAIL` or `JIRA_API_TOKEN`. Jira requests require HTTPS and time out after 15 seconds by default. Set `STORYDOC_MAX_DIFF_BYTES` to change the default 5 MB pull-request diff limit.
-
-The Jira request is equivalent to:
+The request is equivalent to:
 
 ```text
 GET /rest/api/3/issue/APP-142?fields=summary,<acceptance-criteria-field>,<technical-design-field>
 ```
 
-No Jira description or other fields are requested. The title uses Jira's built-in summary; the analysis input uses only the summary, Acceptance Criteria, and Technical Design. If Jira is not configured, use `--story-file` and optional `--design-file`.
+**Authentication** — three setups, validated at startup:
 
-With those variables configured, invoke live JIRA ingestion with:
+- **Scoped Atlassian API token** (recommended): set `JIRA_CLOUD_ID` + `JIRA_EMAIL` + `JIRA_API_TOKEN`. Requests route through Atlassian's API gateway with HTTP Basic auth.
+- **Legacy unscoped token**: omit `JIRA_CLOUD_ID`; requests go directly to the site URL.
+- **Organisation-managed bearer token**: set `JIRA_BEARER_TOKEN` instead. It must **not** be combined with `JIRA_EMAIL`/`JIRA_API_TOKEN`.
 
-```bash
-pnpm run storydoc generate --pr 142 --ticket APP-142
-```
+Requests require HTTPS (`http://` only for `localhost`) and time out after 15 seconds. If Jira is not configured, use `--story-file` and optional `--design-file`.
 
-### Codex model configuration
+### Codex Models
 
-The default routing uses Terra with low reasoning effort for requirement extraction and Luna with high reasoning effort for implementation analysis:
+Defaults route Terra at low reasoning effort and Luna at high:
 
 ```bash
 export STORYDOC_REQUIREMENTS_MODEL="gpt-5.6-terra"
@@ -102,93 +200,43 @@ export STORYDOC_IMPLEMENTATION_MODEL="gpt-5.6-luna"
 export STORYDOC_IMPLEMENTATION_REASONING_EFFORT="low"
 ```
 
-`minimal`, `low`, `medium`, `high`, and `xhigh` are accepted reasoning-effort values. `STORYDOC_TERRA_MODEL` and `STORYDOC_LUNA_MODEL` remain supported as shorter model-name overrides. AI output is schema-validated and every cited component path must be present in the PR file list.
+Accepted reasoning-effort values: `minimal`, `low`, `medium`, `high`, `xhigh`. `STORYDOC_TERRA_MODEL` and `STORYDOC_LUNA_MODEL` remain supported as shorter model-name overrides.
 
-After each model stage, StoryDoc prints input, cached-input, output, and reasoning token usage. For the default GPT-5.6 Terra and Luna models it also prints an API-equivalent USD estimate and saves it in `usage.json`. This estimate uses public API rates and is not an invoice: Codex-plan billing, discounts, credits, taxes, and organisation terms can differ.
+After each stage, StoryDoc prints token usage. For the default GPT-5.6 models it also prints an API-equivalent USD estimate and saves it to `usage.json`. This uses public API rates and **is not an invoice** — Codex-plan billing, discounts, credits, taxes, and org terms can differ.
 
-Before the Luna implementation-analysis call, StoryDoc reduces large Salesforce pull requests in two passes:
+Other useful variables:
 
-- `filterSalesforceNoise` removes generated metadata sidecars, `package-lock.json`, and files in `/translations/` from the file manifest.
-- `extractDiffHunks` keeps each `diff --git` header, hunk header, additions, deletions, and no more than two unchanged context lines on either side of a change.
-
-The raw pull-request data remains available to StoryDoc for source validation, but the compressed file manifest and diff are what Luna receives.
-
-If the Codex SDK's bundled executable is unavailable or outdated in a local environment, point StoryDoc at a current authenticated Codex executable without changing application code:
-
-```bash
-export STORYDOC_CODEX_PATH="$(command -v codex)"
-```
-
-Run StoryDoc unit tests:
-
-```bash
-pnpm run test:storydoc
-```
-
-Run the tracked-file secret scan locally before committing:
-
-```bash
-pnpm run check:secrets
-```
-
-The GitHub Actions workflow at `.github/workflows/storydoc.yml` runs both the secret scan and unit tests on pushes and pull requests. The scan reports only filenames, never token values.
+| Variable                  | Purpose                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| `STORYDOC_MAX_DIFF_BYTES` | Change the default 5 MB pull-request diff limit.                               |
+| `STORYDOC_CODEX_PATH`     | Point at a current authenticated Codex executable, e.g. `$(command -v codex)`. |
 
 ---
 
-## Salesforce DX Project
+## Security
 
-Salesforce DX is a development approach that brings source-driven development, team collaboration, and continuous integration to the Salesforce Platform. Instead of working directly in an org through a web browser, you work with metadata as source files in a local DX project, track changes in version control, and deploy through automated processes.
+StoryDoc is built defensively around untrusted input:
 
-This project template gets you started with the tools and structure you need to build Salesforce applications using source control, scratch orgs, and the Salesforce CLI.
+- **Isolated AI sandbox** — each pass runs in a fresh temporary directory, read-only, with network and web search disabled. The model cannot read your repository or `.env`.
+- **Prompt-injection defence** — all external content (story, PR body, diff) is wrapped in untrusted-data markers the model is told never to obey as instructions.
+- **Secret redaction** — credentials are redacted from AI inputs _and_ from the final document before it is written to disk.
+- **No hallucinated files** — every component path the AI cites is checked against the actual PR file list; a mismatch fails the run.
+- **Path-traversal safe** — the `--ticket` value is sanitized and the resolved output path is verified to stay inside the output directory.
+- **Repo secret scan** — `pnpm run check:secrets` scans every git-tracked file for token shapes; it also runs in CI. It reports only filenames, never values.
 
-## Prerequisites
+---
 
-Before you start, make sure you have:
+## Testing
 
-- **Salesforce CLI** - Download from [developer.salesforce.com/tools/salesforcecli](https://developer.salesforce.com/tools/salesforcecli). See [Install Salesforce CLI](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_install_cli.htm) for details.
-- **VS Code with Salesforce Extension Pack** - See [Installation Instructions](https://developer.salesforce.com/docs/platform/sfvscode-extensions/guide/install.html) for details. Includes the Agentforce Vibes extension.
-- **A development org** - Sign up for a free Developer Edition org [here](https://developer.salesforce.com/signup).
-- **Dev Hub enabled** (optional, required to create scratch orgs) - You can enable Dev Hub in your development org under Setup > Dev Hub. See [Provide Developers Access to Salesforce DX Tools](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_setup_dx_tools.htm).
+```bash
+pnpm run test:storydoc     # compile + run the unit suite
+pnpm run check:secrets     # scan tracked files for leaked credentials
+```
 
-## Project Structure
+The GitHub Actions workflow at `.github/workflows/storydoc.yml` runs the secret scan and the full test suite on every push and pull request, with read-only repository permissions.
 
-Your DX project follows this structure:
+---
 
-- **`force-app/main/default/`** - Your metadata source files live in this default package directory. You can configure additional package directories in the `sfdx-project.json` file.
-- **`config/`** - Scratch org definitions and project settings
-- **`scripts/`** - Automation scripts for common tasks
-- **`sfdx-project.json`** - Project manifest that defines package directories, namespace, API version, and other project-level settings
+## Documentation
 
-See [Salesforce DX Project Configuration](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_ws_config.htm).
-
-## Get Started
-
-Ready to start developing? The [Get Started with Salesforce DX](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_get_started_dx.htm) guide walks you through your first project, from creating a scratch org to creating a simple Apex class or LWC to deploying your code to a sandbox.
-
-## Common Salesforce CLI Commands
-
-Here are common CLI commands that you'll use the most:
-
-- `sf org login web`: Authorize an org
-- `sf org open`: Open your org in a browser
-- `sf org create scratch`: Create a scratch org
-- `sf project deploy start`: Deploy metadata to your org
-- `sf project retrieve start`: Retrieve metadata from your org
-- `sf template generate <artifact>`: Scaffold new components, such as Apex classes and triggers, LWC components, Lightning apps, and more
-- `sf apex <command>`: Run Apex tests, run anonymous Apex blocks, and view logs
-- `sf data <command>`: Work with test data
-- `sf alias <command>`: Manage org aliases
-- `sf config <command>`: Configure CLI settings
-
-## Use Agentforce Vibes to Build Lightning Apps
-
-Transform your ideas into custom Lightning apps that extend CRM workflows directly in Lightning Experience. Through natural conversations with Agentforce Vibes, implement custom objects and fields, complex business logic, and dynamic UI components. See [Build a Lightning App Using Agentforce Vibes](https://developer.salesforce.com/docs/platform/einstein-for-devs/guide/lexapp-overview.html).
-
-## Additional Resources
-
-- [Agentforce Vibes Developer Guide](https://developer.salesforce.com/docs/platform/einstein-for-devs/guide/einstein-overview.html)
-- [Salesforce CLI Installation Guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_intro.htm)
-- [Salesforce DX Developer Guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/)
-- [Salesforce CLI Command Reference](https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_reference.meta/sfdx_cli_reference/)
-- [Salesforce CLI Plugin Development Guide](https://developer.salesforce.com/docs/platform/salesforce-cli-plugin/guide/conceptual-overview.html)
-- [Salesforce VS Code Extensions Documentation](https://developer.salesforce.com/tools/vscode/)
+For a full, plain-language walkthrough of every module and design decision, see **[docs/IMPLEMENTATION_GUIDE.md](docs/IMPLEMENTATION_GUIDE.md)**.
