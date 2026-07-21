@@ -55,20 +55,30 @@ The project targets **Salesforce** development specifically — it knows how to 
 
 When you run `storydoc generate --pr 142 --ticket APP-142`, this happens, in order:
 
-```
- Step 1              Step 2              Step 3                Step 4
- Load the PR   →   Load the story  →   Classify the     →   Compress the
- (from GitHub       (from Jira or       changed files         diff and filter
-  or a local        local Markdown      (which Salesforce     Salesforce noise
-  JSON file)        files)              type is each file?)   (reduce tokens)
+```mermaid
+graph LR
+    A["<b>Step 1</b><br/>Load the PR<br/>(GitHub/JSON)"]
+    B["<b>Step 2</b><br/>Load the Story<br/>(Jira/Markdown)"]
+    C["<b>Step 3</b><br/>Classify Files<br/>(Salesforce types)"]
+    D["<b>Step 4</b><br/>Compress Diff<br/>(Filter noise)"]
+    E["<b>Step 5</b><br/>Terra 🌍<br/>(Extract requirements)"]
+    F["<b>Step 6</b><br/>Luna 🌙<br/>(Analyze code)"]
+    G["<b>Step 7</b><br/>Safety Checks<br/>(Validate/redact)"]
+    H["<b>Step 8</b><br/>Write Output<br/>(5 files)"]
 
- Step 5                        Step 6                      Step 7                Step 8
- AI Pass 1: "Terra"      →     AI Pass 2: "Luna"     →     Safety checks     →   Write the
- reads the story and           reads the compressed        (validate paths,      output
- extracts a clean list         diff and explains           redact secrets)       (5 files)
- of requirements                how each change fulfils
-                                the requirements
+    A --> B --> C --> D --> E --> F --> G --> H
+
+    style A fill:#667eea,stroke:#764ba2,stroke-width:2px,color:#fff
+    style B fill:#667eea,stroke:#764ba2,stroke-width:2px,color:#fff
+    style C fill:#f093fb,stroke:#f5576c,stroke-width:2px,color:#fff
+    style D fill:#f093fb,stroke:#f5576c,stroke-width:2px,color:#fff
+    style E fill:#4facfe,stroke:#00f2fe,stroke-width:2px,color:#fff
+    style F fill:#4facfe,stroke:#00f2fe,stroke-width:2px,color:#fff
+    style G fill:#43e97b,stroke:#38f9d7,stroke-width:2px,color:#fff
+    style H fill:#fa709a,stroke:#fee140,stroke-width:2px,color:#333
 ```
+
+**Color guide:** 🔵 Input · 🔴 Processing · 🔵 AI Analysis · 🟢 Validation · 🟡 Output
 
 Every one of these steps prints a numbered progress line (`[1/7]`, `[2/7]`, etc.) to the terminal as it happens, so a long run never looks frozen. The compression step is included in the `[3/7]` output. See Section 4 for the details.
 
