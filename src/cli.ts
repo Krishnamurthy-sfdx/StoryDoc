@@ -35,17 +35,20 @@ async function generate(options: GenerateOptions): Promise<void> {
   if (!options.force) await assertOutputDoesNotExist(outputDirectory, outputFiles);
   const prProvider = options.prFile ? new LocalPullRequestProvider(resolve(workingDirectory, options.prFile)) : new GitHubCliPullRequestProvider(workingDirectory, undefined, reportProgress);
   const storyProvider = options.storyFile ? new LocalFileStoryProvider(resolve(workingDirectory, options.storyFile), options.designFile ? resolve(workingDirectory, options.designFile) : undefined) : new JiraStoryProvider(undefined, reportProgress);
-  console.log(`[1/7] Fetching pull request #${options.pr}...`);
+  console.log(`[1/8] Fetching pull request #${options.pr}...`);
   const pullRequest = await prProvider.getPullRequest(options.pr);
-  console.log(`[1/7] Pull request loaded: ${pullRequest.changedFiles.length} changed files.`);
-  console.log(`[2/7] Fetching story ${options.ticket} from ${options.storyFile ? "local files" : "Jira API"}...`);
+  console.log(`[1/8] Pull request loaded: ${pullRequest.changedFiles.length} changed files.`);
+  console.log(`[2/8] Fetching story ${options.ticket} from ${options.storyFile ? "local files" : "Jira API"}...`);
   const story = await storyProvider.getStory(options.ticket);
-  console.log(`[2/7] Story loaded: ${story.summary || story.id}.`);
-  console.log("[3/7] Classifying Salesforce components changed by the pull request...");
+  console.log(`[2/8] Story loaded: ${story.summary || story.id}.`);
+  if (!story.technicalDesign.trim()) {
+    throw new Error("Jira Technical Design is empty. StoryDoc preserves Jira's design and will not create a replacement document. Populate the Technical Design field or provide --design-file.");
+  }
+  console.log("[3/8] Classifying Salesforce components changed by the pull request...");
   const classifiedFiles = classifyChangedFiles(pullRequest.changedFiles);
-  console.log(`[3/7] Classified ${classifiedFiles.length} changed files.`);
+  console.log(`[3/8] Classified ${classifiedFiles.length} changed files.`);
   const compression = compressPullRequestInput(pullRequest.changedFiles, pullRequest.diff);
-  console.log(`[3/7] Compression preview: ${compression.originalFiles.length} files -> ${compression.filteredFiles.length}; ${formatBytes(compression.originalDiff)} diff -> ${formatBytes(compression.compressedDiff)}.`);
+  console.log(`[3/8] Compression preview: ${compression.originalFiles.length} files -> ${compression.filteredFiles.length}; ${formatBytes(compression.originalDiff)} diff -> ${formatBytes(compression.compressedDiff)}.`);
   // Temporary diagnostics: remove this collector, callback, and usage.json output when cost visibility is no longer needed.
   const modelUsage: StoryDocModelUsage[] = [];
   const analyser = new CodexAnalyser(undefined, (usage) => {
@@ -54,12 +57,17 @@ async function generate(options: GenerateOptions): Promise<void> {
   });
   const requirements = options.skipAi ? skippedRequirements(story) : await extractRequirementsWithProgress(analyser, story);
   const implementation = options.skipAi ? skippedImplementation() : await analyseImplementationWithProgress(analyser, { story, requirements, pullRequest, classifiedFiles });
-  console.log("[6/7] Validating component evidence against the pull request...");
-  validateFileEvidence(implementation, pullRequest.changedFiles);
-  console.log("[6/7] Evidence validation complete.");
+  console.log("[6/8] Validating component evidence against the pull request...");
+  validateFileEvidence(implementation, pullRequest.changedFiles, story.technicalDesign);
+  console.log("[6/8] Evidence validation complete.");
+  const solutionOverview = options.skipAi ? skippedSolutionOverview() : await draftSolutionOverviewWithProgress(analyser, {
+    story: { id: story.id, summary: story.summary },
+    requirements,
+    technicalDesignAdjustments: implementation.technicalDesignAdjustments,
+  });
   if (modelUsage.length > 0) console.log(formatUsageTotal(modelUsage));
-  const document = redactSensitiveContent(buildDocumentationAnalysis({ story, storyUrl: options.storyFile ? undefined : jiraStoryUrl(options.ticket), requirements, pullRequest, implementation }));
-  console.log(`[7/7] Writing generated documentation to ${outputDirectory}...`);
+  const document = redactSensitiveContent(buildDocumentationAnalysis({ story, storyUrl: options.storyFile ? undefined : jiraStoryUrl(options.ticket), pullRequest, implementation, solutionOverview: solutionOverview?.solutionOverview }));
+  console.log(`[8/8] Writing generated documentation to ${outputDirectory}...`);
   await mkdir(outputDirectory, { recursive: true });
   const compressionAudit = buildCompressionAudit(options.pr, compression);
   await Promise.all([
@@ -100,11 +108,11 @@ function formatBytes(value: string): string {
 }
 
 async function extractRequirementsWithProgress(analyser: CodexAnalyser, story: { id: string; description: string; technicalDesign: string }) {
-  console.log("[4/7] Terra: extracting acceptance criteria and technical-design decisions (low reasoning effort)...");
+  console.log("[4/8] Terra: extracting acceptance criteria and technical-design references (configured reasoning effort)...");
   const stopPulse = startProgressPulse("Terra", "still extracting and structuring story requirements");
   try {
     const requirements = await analyser.extractRequirements(story);
-    console.log(`[4/7] Terra complete: ${requirements.acceptanceCriteria.length} acceptance criteria and ${requirements.designDecisions.length} design decisions extracted.`);
+    console.log(`[4/8] Terra complete: ${requirements.acceptanceCriteria.length} acceptance criteria and ${requirements.designDecisions.length} design decisions extracted.`);
     return requirements;
   } finally {
     stopPulse();
@@ -112,25 +120,42 @@ async function extractRequirementsWithProgress(analyser: CodexAnalyser, story: {
 }
 
 async function analyseImplementationWithProgress(analyser: CodexAnalyser, input: Parameters<CodexAnalyser["analyseImplementation"]>[0]) {
-  console.log("[5/7] Luna: creating the concise technical design from changed components (low reasoning effort)...");
-  const stopPulse = startProgressPulse("Luna", "still analyzing the pull-request diff and Salesforce metadata");
+  console.log("[5/8] Luna: comparing the Jira Technical Design with the changed pull-request files (configured reasoning effort)...");
+  const stopPulse = startProgressPulse("Luna comparison", "still analyzing the pull-request diff and Salesforce metadata");
   try {
     const implementation = await analyser.analyseImplementation(input);
-    console.log(`[5/7] Luna complete: ${implementation.components.length} components and ${implementation.testing.testFiles.length} test files identified.`);
+    console.log(`[5/8] Luna comparison complete: ${implementation.technicalDesignAdjustments.length} Jira technical-design updates identified.`);
     return implementation;
   } finally {
     stopPulse();
   }
 }
 
+async function draftSolutionOverviewWithProgress(analyser: CodexAnalyser, input: Parameters<CodexAnalyser["draftSolutionOverview"]>[0]) {
+  console.log("[7/8] Luna: drafting the Solution Overview from validated requirements and pull-request updates (configured reasoning effort)...");
+  const stopPulse = startProgressPulse("Luna overview", "still drafting the concise Solution Overview");
+  try {
+    const solutionOverview = await analyser.draftSolutionOverview(input);
+    console.log(`[7/8] Luna overview complete: ${solutionOverview.solutionOverview.length.toLocaleString()} characters drafted.`);
+    return solutionOverview;
+  } finally {
+    stopPulse();
+  }
+}
+
 function skippedRequirements(story: { id: string; summary: string }) {
-  console.log("[4/7] Terra skipped because --skip-ai was supplied.");
+  console.log("[4/8] Terra skipped because --skip-ai was supplied.");
   return { storyId: story.id, summary: story.summary, acceptanceCriteria: [], designDecisions: [], assumptions: ["AI analysis was skipped."] };
 }
 
 function skippedImplementation() {
-  console.log("[5/7] Luna skipped because --skip-ai was supplied.");
-  return { solutionOverview: "AI analysis was skipped.", components: [], supportingChanges: [], securityChanges: [], dependencies: [], testing: { testFiles: [], sourceScenarios: [], executionStatus: "Tests were not executed by StoryDoc." as const }, deploymentNotes: [], assumptions: [] };
+  console.log("[5/8] Luna comparison skipped because --skip-ai was supplied.");
+  return { technicalDesignAdjustments: [] };
+}
+
+function skippedSolutionOverview(): undefined {
+  console.log("[7/8] Luna overview skipped because --skip-ai was supplied.");
+  return undefined;
 }
 
 function jiraStoryUrl(ticket: string): string | undefined {
@@ -138,7 +163,7 @@ function jiraStoryUrl(ticket: string): string | undefined {
   return baseUrl ? `${baseUrl}/browse/${encodeURIComponent(ticket)}` : undefined;
 }
 
-function startProgressPulse(model: "Terra" | "Luna", activity: string): () => void {
+function startProgressPulse(model: StoryDocModelUsage["stage"], activity: string): () => void {
   const startedAt = Date.now();
   const timer = setInterval(() => {
     const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1_000);

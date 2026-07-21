@@ -29,6 +29,62 @@ test("requests only summary, Acceptance Criteria, and Technical Design fields", 
   assert.match(progress[1], /response received/);
 });
 
+test("preserves Jira ADF technical-design structure as Markdown", async () => {
+  const provider = new JiraStoryProvider({
+    baseUrl: "https://jira.example.com",
+    acceptanceCriteriaField: "customfield_10001",
+    technicalDesignField: "customfield_10002",
+    bearerToken: "test-token",
+    fetchImpl: async () => new Response(JSON.stringify({ fields: {
+      summary: "Subscription automation",
+      customfield_10001: "AC",
+      customfield_10002: {
+        type: "doc",
+        content: [
+          { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Subscription flow" }] },
+          { type: "paragraph", content: [{ type: "text", text: "Create " }, { type: "text", text: "Subscription__c", marks: [{ type: "code" }] }, { type: "text", text: " when an opportunity closes." }] },
+          { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Activate the flow." }] }] }] },
+        ],
+      },
+    } }), { status: 200 }),
+  });
+
+  const story = await provider.getStory("SCRUM-1");
+  assert.equal(story.technicalDesign, "## Subscription flow\n\nCreate `Subscription__c` when an opportunity closes.\n\n- Activate the flow.");
+});
+
+test("preserves Jira ADF tables as Markdown tables", async () => {
+  const text = (value: string, marks?: Array<{ type: string }>) => ({ type: "text", text: value, ...(marks ? { marks } : {}) });
+  const cell = (type: "tableHeader" | "tableCell", ...content: object[]) => ({ type, content: [{ type: "paragraph", content }] });
+  const provider = new JiraStoryProvider({
+    baseUrl: "https://jira.example.com",
+    acceptanceCriteriaField: "customfield_10001",
+    technicalDesignField: "customfield_10002",
+    bearerToken: "test-token",
+    fetchImpl: async () => new Response(JSON.stringify({ fields: {
+      summary: "Subscription fields",
+      customfield_10001: "AC",
+      customfield_10002: {
+        type: "doc",
+        content: [{
+          type: "table",
+          content: [
+            { type: "tableRow", content: [cell("tableHeader", text("Field Label")), cell("tableHeader", text("API Name")), cell("tableHeader", text("Type")), cell("tableHeader", text("Details"))] },
+            { type: "tableRow", content: [cell("tableCell", text("Start Date")), cell("tableCell", text("Start_Date__c", [{ type: "code" }])), cell("tableCell", text("Date")), cell("tableCell", text("Required | tracked"), { type: "hardBreak" }, text("Used when a subscription starts."))] },
+          ],
+        }],
+      },
+    } }), { status: 200 }),
+  });
+
+  const story = await provider.getStory("SCRUM-1");
+  assert.equal(story.technicalDesign, [
+    "| Field Label | API Name | Type | Details |",
+    "| --- | --- | --- | --- |",
+    "| Start Date | `Start_Date__c` | Date | Required \\| tracked<br>Used when a subscription starts. |",
+  ].join("\n"));
+});
+
 test("uses the scoped-token gateway when a Jira cloud ID is configured", async () => {
   let requestedUrl = "";
   let authorization = "";

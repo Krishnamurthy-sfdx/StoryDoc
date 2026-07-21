@@ -27,39 +27,44 @@ export const requirementsExtractionSchema = z.object({
   designDecisions: z.array(designDecisionSchema), assumptions: z.array(z.string()),
 });
 
-export const componentAnalysisSchema = z.object({
-  path: z.string().min(1), component: z.string().min(1), metadataType: z.string().min(1),
-  changeType: z.string().min(1), summary: z.string(), implementationDetails: z.array(z.string()),
-  relatedAcceptanceCriteria: z.array(z.string()), dependencies: z.array(z.string()),
-  securityChanges: z.array(z.string()), testingChanges: z.array(z.string()), deploymentNotes: z.array(z.string()),
+/** A pull-request-evidenced change that must be applied to the Jira technical design. */
+export const technicalDesignAdjustmentSchema = z.object({
+  type: z.enum(["implemented-differently", "removed-by-pr", "added-in-pr"]),
+  /** Optional model hint; StoryDoc derives the rendered heading from the exact Jira quotation. */
+  sectionHeading: z.string(),
+  /** Literal source text from Jira. This is empty only for a material PR-only addition. */
+  sourceText: z.string(),
+  /** A concise, plain-English description of the evidence-backed implementation change. */
+  update: z.string().min(1),
+  /** Changed-file paths that support this adjustment; never rendered in the Markdown document. */
+  evidencePaths: z.array(z.string().min(1)).min(1),
 });
 
+/** Luna returns only targeted updates; it never writes a replacement technical design. */
 export const implementationAnalysisSchema = z.object({
-  solutionOverview: z.string(), components: z.array(componentAnalysisSchema),
-  supportingChanges: z.array(z.string()), securityChanges: z.array(z.string()), dependencies: z.array(z.string()),
-  testing: z.object({ testFiles: z.array(z.string()), sourceScenarios: z.array(z.string()), executionStatus: z.literal("Tests were not executed by StoryDoc.") }),
-  deploymentNotes: z.array(z.string()), assumptions: z.array(z.string()),
+  technicalDesignAdjustments: z.array(technicalDesignAdjustmentSchema),
 });
 
-export const acceptanceCriterionDocumentationSchema = z.object({
-  id: z.string().min(1), criterion: z.string().min(1), implementation: z.string(), components: z.array(z.string()),
-  technicalDetails: z.array(z.string()), testing: z.array(z.string()),
+/** A short orientation paragraph that appears above, but never replaces, Jira's Technical Design. */
+export const solutionOverviewSchema = z.object({
+  solutionOverview: z.string().trim().min(1).max(1_600),
 });
 
 export const documentationAnalysisSchema = z.object({
   story: z.object({ id: z.string(), summary: z.string(), url: z.string().url().optional() }),
   pullRequest: z.object({ number: z.number().int().positive(), title: z.string(), sourceBranch: z.string(), targetBranch: z.string(), status: z.string() }),
-  solutionOverview: z.string(), acceptanceCriteria: z.array(acceptanceCriterionDocumentationSchema),
-  components: z.array(componentAnalysisSchema), supportingChanges: z.array(z.string()), securityChanges: z.array(z.string()),
-  dependencies: z.array(z.string()),
-  testing: z.object({ testFiles: z.array(z.string()), sourceScenarios: z.array(z.string()), executionStatus: z.literal("Tests were not executed by StoryDoc.") }),
-  deploymentNotes: z.array(z.string()), assumptions: z.array(z.string()),
+  /** A concise Luna-drafted orientation paragraph, omitted when AI is skipped. */
+  solutionOverview: z.string().min(1).optional(),
+  /** The Jira Technical Design is the document body and is preserved by the renderer. */
+  technicalDesign: z.string(),
+  technicalDesignAdjustments: z.array(technicalDesignAdjustmentSchema),
 });
 
 export type ChangedFile = z.infer<typeof changedFileSchema>;
 export type PullRequestDetails = z.infer<typeof pullRequestSchema>;
 export type StoryContent = z.infer<typeof storyContentSchema>;
 export type RequirementsExtraction = z.infer<typeof requirementsExtractionSchema>;
-export type ComponentAnalysis = z.infer<typeof componentAnalysisSchema>;
+export type TechnicalDesignAdjustment = z.infer<typeof technicalDesignAdjustmentSchema>;
 export type ImplementationAnalysis = z.infer<typeof implementationAnalysisSchema>;
+export type SolutionOverview = z.infer<typeof solutionOverviewSchema>;
 export type DocumentationAnalysis = z.infer<typeof documentationAnalysisSchema>;
