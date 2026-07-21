@@ -1,21 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { DocumentationAnalysis } from "../schemas.js";
-import { renderHtml } from "./render.js";
+import { renderMarkdown } from "./render.js";
 
-test("renders escaped structured HTML without list elements inside paragraphs", () => {
+test("renders a concise Confluence-ready technical design", () => {
   const document: DocumentationAnalysis = {
-    story: { id: "APP-142", summary: "<script>alert(1)</script>" },
+    story: { id: "APP-142", summary: "Eligibility" },
     pullRequest: { number: 142, title: "Eligibility", sourceBranch: "feature/eligibility", targetBranch: "main", status: "OPEN" },
-    solutionOverview: "Validate eligibility.",
-    acceptanceCriteria: [{ id: "AC-1", criterion: "Validate", implementation: "Implemented safely.", components: ["Eligibility.cls"], technicalDetails: ["Service layer"], testing: ["EligibilityTest.cls"] }],
-    components: [], supportingChanges: [], securityChanges: [], dependencies: [],
-    testing: { testFiles: [], sourceScenarios: [], executionStatus: "Tests were not executed by StoryDoc." },
-    deploymentNotes: [], assumptions: [],
+    solutionOverview: "The service validates `Eligibility__c` records before processing.",
+    acceptanceCriteria: [],
+    components: [{ path: "force-app/main/default/classes/Eligibility.cls", component: "Eligibility", metadataType: "ApexClass", changeType: "modified", summary: "Validates eligibility records.", implementationDetails: ["The class validates required values before the record is processed."], relatedAcceptanceCriteria: [], dependencies: [], securityChanges: [], testingChanges: [], deploymentNotes: [] }],
+    supportingChanges: ["The caller invokes the service before saving the record."],
+    securityChanges: [], dependencies: [],
+    testing: { testFiles: ["EligibilityTest.cls"], sourceScenarios: ["Reject an incomplete record."], executionStatus: "Tests were not executed by StoryDoc." },
+    deploymentNotes: ["Deploy the Apex class and assign access."], assumptions: [],
   };
-  const html = renderHtml(document);
-  assert.doesNotMatch(html, /<script>alert/);
-  assert.match(html, /&lt;script&gt;alert/);
-  assert.match(html, /<ul><li>/);
-  assert.doesNotMatch(html, /<p>[^<]*<li>/);
+  const markdown = renderMarkdown(document);
+  assert.match(markdown, /## Story Overview/);
+  assert.match(markdown, /## Solution Overview/);
+  assert.match(markdown, /## Technical Implementation/);
+  assert.match(markdown, /`Eligibility__c`/);
+  assert.doesNotMatch(markdown, /Acceptance Criteria|Components Changed|Component Appendix|Contradictions and Decisions|None identified\./);
+  assert.doesNotMatch(markdown, /force-app\/main\/default/);
 });
