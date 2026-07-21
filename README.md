@@ -107,6 +107,14 @@ pnpm run storydoc generate \
 
 Output is written to `.storydoc/APP-142/`. With `--skip-ai`, the fixture design is preserved without PR comparison or a generated Solution Overview. Drop `--skip-ai` to run Terra, Luna comparison, and the final no-reasoning Luna overview stage (requires a working local Codex setup).
 
+To generate documentation for your own pull request and Jira story, run this from the repository that contains the pull request:
+
+```bash
+pnpm run storydoc generate --pr <your-pull-request-number> --ticket <your-jira-story-key>
+```
+
+Replace `<your-pull-request-number>` with the GitHub pull-request number and `<your-jira-story-key>` with the Jira issue key, for example `SCRUM-1`. Configure Jira in `.env` and authenticate `gh` first.
+
 ---
 
 ## Usage
@@ -130,7 +138,7 @@ pnpm run storydoc generate [options]
 
 ```bash
 gh auth login                    # one time
-pnpm run storydoc generate --pr 142 --ticket APP-142
+pnpm run storydoc generate --pr <your-pull-request-number> --ticket <your-jira-story-key>
 ```
 
 StoryDoc invokes `gh pr view` and `gh pr diff` under the hood.
