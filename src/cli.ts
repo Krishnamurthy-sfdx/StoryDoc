@@ -31,7 +31,7 @@ async function generate(options: GenerateOptions): Promise<void> {
   const workingDirectory = process.cwd();
   const reportProgress = (message: string) => console.log(message);
   const outputDirectory = resolveStoryOutputDirectory(workingDirectory, options.outputDir, options.ticket);
-  const outputFiles = ["analysis.json", "technical-documentation.md", "technical-documentation.html", "usage.json", "compression-audit.json"].map((file) => resolve(outputDirectory, file));
+  const outputFiles = ["analysis.json", "technical-documentation.md", "usage.json", "compression-audit.json"].map((file) => resolve(outputDirectory, file));
   if (!options.force) await assertOutputDoesNotExist(outputDirectory, outputFiles);
   const prProvider = options.prFile ? new LocalPullRequestProvider(resolve(workingDirectory, options.prFile)) : new GitHubCliPullRequestProvider(workingDirectory, undefined, reportProgress);
   const storyProvider = options.storyFile ? new LocalFileStoryProvider(resolve(workingDirectory, options.storyFile), options.designFile ? resolve(workingDirectory, options.designFile) : undefined) : new JiraStoryProvider(undefined, reportProgress);
@@ -58,19 +58,18 @@ async function generate(options: GenerateOptions): Promise<void> {
   validateFileEvidence(implementation, pullRequest.changedFiles);
   console.log("[6/7] Evidence validation complete.");
   if (modelUsage.length > 0) console.log(formatUsageTotal(modelUsage));
-  const document = redactSensitiveContent(buildDocumentationAnalysis({ story, requirements, pullRequest, implementation }));
+  const document = redactSensitiveContent(buildDocumentationAnalysis({ story, storyUrl: options.storyFile ? undefined : jiraStoryUrl(options.ticket), requirements, pullRequest, implementation }));
   console.log(`[7/7] Writing generated documentation to ${outputDirectory}...`);
   await mkdir(outputDirectory, { recursive: true });
   const compressionAudit = buildCompressionAudit(options.pr, compression);
   await Promise.all([
     writeFile(outputFiles[0], `${JSON.stringify(document, null, 2)}\n`, { flag: options.force ? "w" : "wx" }),
     writeFile(outputFiles[1], renderMarkdown(document), { flag: options.force ? "w" : "wx" }),
-    writeFile(outputFiles[2], renderHtml(document), { flag: options.force ? "w" : "wx" }),
-    writeFile(outputFiles[3], `${JSON.stringify({ modelUsage, estimatedApiEquivalentCostUsd: totalEstimatedCost(modelUsage), note: "Estimated using public API token rates. Actual Codex-plan billing may differ." }, null, 2)}\n`, { flag: options.force ? "w" : "wx" }),
-    writeFile(outputFiles[4], `${JSON.stringify(redactSensitiveContent(compressionAudit), null, 2)}\n`, { flag: options.force ? "w" : "wx" }),
+    writeFile(outputFiles[2], `${JSON.stringify({ modelUsage, estimatedApiEquivalentCostUsd: totalEstimatedCost(modelUsage), note: "Estimated using public API token rates. Actual Codex-plan billing may differ." }, null, 2)}\n`, { flag: options.force ? "w" : "wx" }),
+    writeFile(outputFiles[3], `${JSON.stringify(redactSensitiveContent(compressionAudit), null, 2)}\n`, { flag: options.force ? "w" : "wx" }),
   ]);
   console.log(`Generated documentation in ${outputDirectory}`);
-  console.log(`Compression audit written to ${outputFiles[4]}`);
+  console.log(`Compression audit written to ${outputFiles[3]}`);
 }
 
 async function assertOutputDoesNotExist(outputDirectory: string, outputFiles: string[]): Promise<void> {
@@ -113,7 +112,7 @@ async function extractRequirementsWithProgress(analyser: CodexAnalyser, story: {
 }
 
 async function analyseImplementationWithProgress(analyser: CodexAnalyser, input: Parameters<CodexAnalyser["analyseImplementation"]>[0]) {
-  console.log("[5/7] Luna: analyzing changed components, dependencies, security, testing, and deployment impact (high reasoning effort)...");
+  console.log("[5/7] Luna: creating the concise technical design from changed components (low reasoning effort)...");
   const stopPulse = startProgressPulse("Luna", "still analyzing the pull-request diff and Salesforce metadata");
   try {
     const implementation = await analyser.analyseImplementation(input);
