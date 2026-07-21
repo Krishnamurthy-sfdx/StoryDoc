@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { CodexAnalyser, type StoryDocModelUsage } from "./ai/codexAnalyser.js";
+import { compressPullRequestInput, type DiffCompressionResult } from "./ai/diffCompression.js";
 import { loadLocalEnvironment } from "./config/localEnvironment.js";
 import { validateFileEvidence } from "./ai/evidenceValidator.js";
 import { buildDocumentationAnalysis } from "./documentation/buildAnalysis.js";
@@ -29,6 +30,9 @@ type GenerateOptions = { pr: number; ticket: string; storyFile?: string; designF
 async function generate(options: GenerateOptions): Promise<void> {
   const workingDirectory = process.cwd();
   const reportProgress = (message: string) => console.log(message);
+  const outputDirectory = resolveStoryOutputDirectory(workingDirectory, options.outputDir, options.ticket);
+  const outputFiles = ["analysis.json", "technical-documentation.md", "technical-documentation.html", "usage.json", "compression-audit.json"].map((file) => resolve(outputDirectory, file));
+  if (!options.force) await assertOutputDoesNotExist(outputDirectory, outputFiles);
   const prProvider = options.prFile ? new LocalPullRequestProvider(resolve(workingDirectory, options.prFile)) : new GitHubCliPullRequestProvider(workingDirectory, undefined, reportProgress);
   const storyProvider = options.storyFile ? new LocalFileStoryProvider(resolve(workingDirectory, options.storyFile), options.designFile ? resolve(workingDirectory, options.designFile) : undefined) : new JiraStoryProvider(undefined, reportProgress);
   console.log(`[1/7] Fetching pull request #${options.pr}...`);
@@ -40,6 +44,8 @@ async function generate(options: GenerateOptions): Promise<void> {
   console.log("[3/7] Classifying Salesforce components changed by the pull request...");
   const classifiedFiles = classifyChangedFiles(pullRequest.changedFiles);
   console.log(`[3/7] Classified ${classifiedFiles.length} changed files.`);
+  const compression = compressPullRequestInput(pullRequest.changedFiles, pullRequest.diff);
+  console.log(`[3/7] Compression preview: ${compression.originalFiles.length} files -> ${compression.filteredFiles.length}; ${formatBytes(compression.originalDiff)} diff -> ${formatBytes(compression.compressedDiff)}.`);
   // Temporary diagnostics: remove this collector, callback, and usage.json output when cost visibility is no longer needed.
   const modelUsage: StoryDocModelUsage[] = [];
   const analyser = new CodexAnalyser(undefined, (usage) => {
@@ -53,22 +59,45 @@ async function generate(options: GenerateOptions): Promise<void> {
   console.log("[6/7] Evidence validation complete.");
   if (modelUsage.length > 0) console.log(formatUsageTotal(modelUsage));
   const document = redactSensitiveContent(buildDocumentationAnalysis({ story, requirements, pullRequest, implementation }));
-  const outputDirectory = resolveStoryOutputDirectory(workingDirectory, options.outputDir, options.ticket);
   console.log(`[7/7] Writing generated documentation to ${outputDirectory}...`);
   await mkdir(outputDirectory, { recursive: true });
-  const outputFiles = [resolve(outputDirectory, "analysis.json"), resolve(outputDirectory, "technical-documentation.md"), resolve(outputDirectory, "technical-documentation.html"), resolve(outputDirectory, "usage.json")];
-  if (!options.force) {
-    const existingFiles = await Promise.all(outputFiles.map(async (file) => { try { await access(file); return file; } catch { return ""; } }));
-    const existing = existingFiles.filter(Boolean);
-    if (existing.length > 0) throw new Error(`Output already exists in ${outputDirectory}. Use --force to overwrite existing files.`);
-  }
+  const compressionAudit = buildCompressionAudit(options.pr, compression);
   await Promise.all([
     writeFile(outputFiles[0], `${JSON.stringify(document, null, 2)}\n`, { flag: options.force ? "w" : "wx" }),
     writeFile(outputFiles[1], renderMarkdown(document), { flag: options.force ? "w" : "wx" }),
     writeFile(outputFiles[2], renderHtml(document), { flag: options.force ? "w" : "wx" }),
     writeFile(outputFiles[3], `${JSON.stringify({ modelUsage, estimatedApiEquivalentCostUsd: totalEstimatedCost(modelUsage), note: "Estimated using public API token rates. Actual Codex-plan billing may differ." }, null, 2)}\n`, { flag: options.force ? "w" : "wx" }),
+    writeFile(outputFiles[4], `${JSON.stringify(redactSensitiveContent(compressionAudit), null, 2)}\n`, { flag: options.force ? "w" : "wx" }),
   ]);
   console.log(`Generated documentation in ${outputDirectory}`);
+  console.log(`Compression audit written to ${outputFiles[4]}`);
+}
+
+async function assertOutputDoesNotExist(outputDirectory: string, outputFiles: string[]): Promise<void> {
+  const existingFiles = await Promise.all(outputFiles.map(async (file) => { try { await access(file); return file; } catch { return ""; } }));
+  if (existingFiles.some(Boolean)) throw new Error(`Output already exists in ${outputDirectory}. Use --force to overwrite existing files, or choose a different --ticket/--output-dir.`);
+}
+
+function buildCompressionAudit(prNumber: number, compression: DiffCompressionResult<{ path: string }>) {
+  const originalBytes = Buffer.byteLength(compression.originalDiff, "utf8");
+  const compressedBytes = Buffer.byteLength(compression.compressedDiff, "utf8");
+  return {
+    pullRequest: prNumber,
+    before: { files: compression.originalFiles, diff: compression.originalDiff },
+    after: { files: compression.filteredFiles, diff: compression.compressedDiff },
+    metrics: {
+      filesBefore: compression.originalFiles.length,
+      filesAfter: compression.filteredFiles.length,
+      diffBytesBefore: originalBytes,
+      diffBytesAfter: compressedBytes,
+      diffBytesRemoved: originalBytes - compressedBytes,
+      diffReductionPercent: originalBytes === 0 ? 0 : Number(((1 - compressedBytes / originalBytes) * 100).toFixed(2)),
+    },
+  };
+}
+
+function formatBytes(value: string): string {
+  return `${Buffer.byteLength(value, "utf8").toLocaleString()} bytes`;
 }
 
 async function extractRequirementsWithProgress(analyser: CodexAnalyser, story: { id: string; description: string; technicalDesign: string }) {

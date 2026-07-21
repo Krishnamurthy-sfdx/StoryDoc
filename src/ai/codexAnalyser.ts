@@ -6,6 +6,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import type { ZodType } from "zod";
 import { implementationAnalysisSchema, requirementsExtractionSchema, type ImplementationAnalysis, type RequirementsExtraction } from "../schemas.js";
 import { assertDiffWithinLimit } from "../security.js";
+import { compressPullRequestInput } from "./diffCompression.js";
 import { analysisPrompt, requirementsPrompt } from "./prompts.js";
 
 export type StoryDocModelConfiguration = {
@@ -52,8 +53,16 @@ export class CodexAnalyser {
   }
 
   public async analyseImplementation(input: Parameters<typeof analysisPrompt>[0]): Promise<ImplementationAnalysis> {
-    assertDiffWithinLimit(input.pullRequest.diff);
-    return this.runInIsolatedWorkspace(this.models.implementation, analysisPrompt(input), implementationAnalysisSchema, "Luna");
+    const compression = compressPullRequestInput(input.pullRequest.changedFiles, input.pullRequest.diff);
+    const filteredPaths = new Set(compression.filteredFiles.map((file) => file.path));
+    const optimizedPullRequest = { ...input.pullRequest, changedFiles: compression.filteredFiles, diff: compression.compressedDiff };
+    const optimizedInput = {
+      ...input,
+      pullRequest: optimizedPullRequest,
+      classifiedFiles: input.classifiedFiles.filter((file) => filteredPaths.has(file.path)),
+    };
+    assertDiffWithinLimit(compression.compressedDiff);
+    return this.runInIsolatedWorkspace(this.models.implementation, analysisPrompt(optimizedInput), implementationAnalysisSchema, "Luna");
   }
 
   private async runInIsolatedWorkspace<T>(model: { model: string; reasoningEffort: ModelReasoningEffort }, prompt: string, schema: ZodType<T>, modelName: "Terra" | "Luna"): Promise<T> {
