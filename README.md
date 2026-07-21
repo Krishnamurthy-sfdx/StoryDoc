@@ -48,8 +48,9 @@ Generated files are written to `.storydoc/<ticket>/`:
 - `technical-documentation.md` — Markdown rendering.
 - `technical-documentation.html` — HTML rendering.
 - `usage.json` — Terra/Luna token usage and API-equivalent cost estimate.
+- `compression-audit.json` — diff-compression metrics (files and bytes before/after filtering and hunking).
 
-Output directories use a sanitized ticket identifier. Existing generated files are not overwritten unless `--force` is supplied. For example, rerun with `--force` only when you intentionally want to replace all four generated files.
+Output directories use a sanitized ticket identifier. Existing generated files are not overwritten unless `--force` is supplied. For example, rerun with `--force` only when you intentionally want to replace all five generated files.
 
 StoryDoc sends only the supplied story fields and pull-request metadata/diff to the Codex analysis calls. Both models run from isolated temporary workspaces, cannot inspect the local repository, cannot use web search, and cannot modify files. Likely credentials in inputs and generated text are redacted before files are written.
 

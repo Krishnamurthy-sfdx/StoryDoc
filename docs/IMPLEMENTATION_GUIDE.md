@@ -37,12 +37,13 @@ StoryDoc automates it. You give it two things:
 1. **A pull request number** — so it can read the actual code changes.
 2. **A ticket reference** — so it can read the requirements (what was _supposed_ to be built).
 
-It then uses AI to compare the requirements against the real code changes and produces four files:
+It then uses AI to compare the requirements against the real code changes and produces five files:
 
 - `analysis.json` — the raw, structured data (the "source of truth").
 - `technical-documentation.md` — a readable Markdown document.
 - `technical-documentation.html` — the same document as a styled web page.
-- `usage.json` — how many tokens each AI pass consumed, plus an API-equivalent cost estimate. This one is **temporary diagnostic output** and is expected to be removed later (see Topic 7).
+- `usage.json` — how many tokens each AI pass consumed, plus an API-equivalent cost estimate. This is **temporary diagnostic output** expected to be removed later (see Topic 7).
+- `compression-audit.json` — before and after metrics for the diff-compression optimization applied before Luna's analysis (see Topic 7).
 
 It is **local-first**: everything runs on your own machine. There is no StoryDoc server, no database, and no data is stored anywhere except your own disk.
 
@@ -56,19 +57,20 @@ When you run `storydoc generate --pr 142 --ticket APP-142`, this happens, in ord
 
 ```
  Step 1              Step 2              Step 3                Step 4
- Load the PR   →   Load the story  →   Classify the     →   AI Pass 1: "Terra"
- (from GitHub       (from Jira or       changed files         reads the story and
-  or a local        local Markdown      (which Salesforce     extracts a clean list
-  JSON file)        files)              type is each file?)   of requirements
+ Load the PR   →   Load the story  →   Classify the     →   Compress the
+ (from GitHub       (from Jira or       changed files         diff and filter
+  or a local        local Markdown      (which Salesforce     Salesforce noise
+  JSON file)        files)              type is each file?)   (reduce tokens)
 
- Step 5                        Step 6                  Step 7
- AI Pass 2: "Luna"       →     Safety checks     →     Write the output
- reads the code diff and       (validate paths,        (analysis.json + Markdown
- explains how each change      redact secrets)          + HTML + usage.json)
- fulfils the requirements
+ Step 5                        Step 6                      Step 7                Step 8
+ AI Pass 1: "Terra"      →     AI Pass 2: "Luna"     →     Safety checks     →   Write the
+ reads the story and           reads the compressed        (validate paths,      output
+ extracts a clean list         diff and explains           redact secrets)       (5 files)
+ of requirements                how each change fulfils
+                                the requirements
 ```
 
-Every one of these steps prints a numbered progress line (`[1/7]`, `[2/7]`, …) to the terminal as it happens, so a long run never looks frozen. See Section 4 for the details.
+Every one of these steps prints a numbered progress line (`[1/7]`, `[2/7]`, etc.) to the terminal as it happens, so a long run never looks frozen. The compression step is included in the `[3/7]` output. See Section 4 for the details.
 
 Two important design principles run through the whole codebase:
 
@@ -154,7 +156,17 @@ A real run can take minutes — the Luna pass in particular thinks for a long ti
 - **Sub-step lines from the providers.** The CLI passes a small `reportProgress` callback — a function that just prints a string — into `GitHubCliPullRequestProvider` and `JiraStoryProvider`. Those classes call it at each network stage (`gh pr view` started, metadata received, `gh pr diff` received with its byte size; Jira request issued naming the exact fields, Jira response received). The callback is **optional**, so the providers stay perfectly usable in tests and elsewhere without printing anything — a small example of dependency injection again (Topic 11).
 - **Heartbeat pulses during the AI passes.** `startProgressPulse` sets a 15-second interval that prints `[Luna] still analyzing the pull-request diff and Salesforce metadata (45s elapsed)...`. The timer is `unref()`'d — meaning it does not by itself keep the Node.js process alive — and is always cleared in a `finally` block, so it can never outlive the step it is reporting on.
 
-One detail worth understanding: **overwrite protection**. Before writing, StoryDoc checks whether output files already exist. If they do and you did not pass `--force`, it stops. When it does write, it uses the file-system flag `wx` ("write, but fail if the file exists") so that even a race condition can't silently overwrite files. With `--force` it uses the normal `w` flag.
+### Diff compression and Salesforce noise filtering
+
+Luna's job is expensive: it must understand the entire code diff to explain how each change fulfils the requirements. The larger the diff, the more tokens consumed.
+
+The CLI compresses the diff before passing it to Luna:
+
+- **File filtering.** The `filterSalesforceNoise` function drops files that add little signal: all `.cls-meta.xml`, `.profile-meta.xml`, `.permissionset-meta.xml`, `package-lock.json`, and anything under a `translations/` folder. The original file list is preserved and written to the `compression-audit.json`, so code review can always verify that an important file wasn't accidentally filtered.
+- **Diff hunks.** The `extractDiffHunks` function keeps all file headers, hunk headers (`@@ ...`), and changed lines (`+` or `-`), but strips unchanged context lines down to at most two on either side of each changed region. This is enough context to understand the change but removes verbose pre-surrounding boilerplate.
+- **Metrics.** The audit records before and after counts: how many files were filtered, the diff byte count before and after, and the reduction percentage. Developers and reviewers can use this to catch aggressive filtering that might be losing important context.
+
+One detail worth understanding: **overwrite protection**. The check runs before fetching the PR or story, so you can't accidentally trigger long I/O only to have it fail during the write phase. When it does write, it uses the file-system flag `wx` ("write, but fail if the file exists") so that even a race condition can't silently overwrite files. With `--force` it uses the normal `w` flag.
 
 ---
 
@@ -311,7 +323,7 @@ Terra receives the story text and technical design, and must produce a clean, st
 
 ### Pass 2 — "Luna" (implementation analysis)
 
-Luna receives the requirements Terra produced, plus the PR metadata, the classified file list, and the full diff. Its job is to explain **how the code changes fulfil each requirement**: per-component summaries, implementation details, security-relevant changes, dependencies, testing changes, deployment notes.
+Luna receives the requirements Terra produced, plus the PR metadata, the classified file list, and the full diff. Before Luna sees the diff, it is **compressed** (Salesforce noise filtered, hunks trimmed to 2 lines of context) to reduce token consumption. Luna's job is to explain **how the code changes fulfil each requirement**: per-component summaries, implementation details, security-relevant changes, dependencies, testing changes, deployment notes. The compression audit is written to `compression-audit.json` so reviewers can always verify nothing critical was filtered.
 
 ### The safety architecture around both passes
 
@@ -487,8 +499,9 @@ StoryDoc loads `.env` automatically at startup (without overriding anything alre
 2. **Jira description field.** `summary` is now requested alongside the two custom fields, so document titles are correct. Adding Jira's standard `description` field is a remaining small improvement.
 3. **Live AI smoke test.** The `--skip-ai` path is verified end to end; a full run through Terra and Luna still needs to be exercised once with your Codex setup (confirm the default model names exist, or override them via the model environment variables).
 4. **Live GitHub test.** Running against a real PR with `gh` has not been done yet.
-5. **Retire the cost instrumentation.** The token-usage and cost reporting is explicitly marked temporary. Once the tool's running costs are understood, remove the `reportUsage` callback, the CLI collector, and the `usage.json` output. (If it is instead kept long term, the hard-coded rate table — which only covers the two default models — should be made configurable first.)
-6. **Renderer polish.** The Markdown-to-HTML conversion is a simple regex-based approach. It is safe (everything is escaped) but produces slightly untidy HTML; a proper Markdown library would improve it.
+5. **Tune noise-filter rules.** The hardcoded list of noisy file suffixes and folder names is a starting point. If real PRs reveal that something important is being filtered (or conversely, that noise is slipping through), update `src/ai/diffCompression.ts` to tighten the rules.
+6. **Retire the cost instrumentation.** The token-usage and cost reporting is explicitly marked temporary. Once the tool's running costs are understood, remove the `reportUsage` callback, the CLI collector, and the `usage.json` output. (If it is instead kept long term, the hard-coded rate table — which only covers the two default models — should be made configurable first.)
+7. **Renderer polish.** The Markdown-to-HTML conversion is a simple regex-based approach. It is safe (everything is escaped) but produces slightly untidy HTML; a proper Markdown library would improve it.
 
 ---
 
@@ -536,3 +549,6 @@ StoryDoc loads `.env` automatically at startup (without overriding anything alre
 | **Cached input tokens**         | Input the provider has already seen and stored, billed at a reduced rate; tracked separately in the cost estimate.   |
 | **Reasoning tokens**            | Output tokens the model spends "thinking" before its visible answer; counted and reported per stage.                 |
 | **Callback**                    | A function passed into another component so it can report back — used here for progress and usage reporting.         |
+| **Diff compression**            | Removing unchanged context lines and filtering noisy files from a diff before sending it to the AI; saves tokens.    |
+| **Hunk (in diff format)**       | A contiguous changed region in a file, bounded by `@@` headers and surrounded by context lines showing surroundings. |
+| **Metadata sidecar**            | A separate XML file accompanying a Salesforce component — e.g. `AccountService.cls-meta.xml` paired with the `.cls`. |
