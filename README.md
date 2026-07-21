@@ -139,13 +139,12 @@ StoryDoc invokes `gh pr view` and `gh pr diff` under the hood.
 
 Files are written to `.storydoc/<ticket>/` (the ticket is sanitized into a safe folder name):
 
-| File                           | Description                                                                                  |
-| ------------------------------ | -------------------------------------------------------------------------------------------- |
-| `analysis.json`                | Validated, structured source of truth.                                                       |
-| `technical-documentation.md`   | Human-readable Markdown documentation.                                                       |
-| `technical-documentation.html` | The same document as a styled, self-contained web page.                                      |
-| `usage.json`                   | Terra/Luna token usage and an API-equivalent cost estimate. _(Temporary diagnostic output.)_ |
-| `compression-audit.json`       | Diff-compression metrics — files and bytes before/after filtering and hunking.               |
+| File                         | Description                                                                                  |
+| ---------------------------- | -------------------------------------------------------------------------------------------- |
+| `analysis.json`              | Validated, structured source of truth.                                                       |
+| `technical-documentation.md` | Human-readable Markdown documentation.                                                       |
+| `usage.json`                 | Terra/Luna token usage and an API-equivalent cost estimate. _(Temporary diagnostic output.)_ |
+| `compression-audit.json`     | Diff-compression metrics — files and bytes before/after filtering and hunking.               |
 
 Existing files are never overwritten unless you pass `--force`.
 
@@ -191,7 +190,7 @@ Requests require HTTPS (`http://` only for `localhost`) and time out after 15 se
 
 ### Codex Models
 
-Defaults route Terra at low reasoning effort and Luna at high:
+Defaults route both Terra and Luna at low reasoning effort:
 
 ```bash
 export STORYDOC_REQUIREMENTS_MODEL="gpt-5.6-terra"
