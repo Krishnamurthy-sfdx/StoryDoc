@@ -10,13 +10,9 @@ test("accepts component evidence from the pull request", () => {
     component: "Eligibility",
     metadataType: "ApexClass",
     changeType: "modified",
-    summary: "Changed eligibility logic.",
-    implementationDetails: [],
-    relatedAcceptanceCriteria: [],
-    dependencies: [],
-    securityChanges: [],
-    testingChanges: [],
-    deploymentNotes: [],
+    summary: "Validates eligibility.",
+    implementationDetails: ["The class validates submitted records before processing."],
+    relatedAcceptanceCriteria: [], dependencies: [], securityChanges: [], testingChanges: [], deploymentNotes: [],
   }] }, changedFiles));
 });
 
@@ -26,12 +22,7 @@ test("rejects component evidence outside the pull request", () => {
     component: "Unknown",
     metadataType: "OtherSalesforceMetadata",
     changeType: "changed",
-    summary: "Unexpected file.",
-    implementationDetails: [],
-    relatedAcceptanceCriteria: [],
-    dependencies: [],
-    securityChanges: [],
-    testingChanges: [],
-    deploymentNotes: [],
+    summary: "Unexpected file.", implementationDetails: ["This component is not part of the pull request."],
+    relatedAcceptanceCriteria: [], dependencies: [], securityChanges: [], testingChanges: [], deploymentNotes: [],
   }] }, changedFiles), /not in the pull request/);
 });

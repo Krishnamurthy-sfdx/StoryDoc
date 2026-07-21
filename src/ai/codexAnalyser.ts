@@ -28,7 +28,7 @@ export type StoryDocModelUsage = {
 
 const supportedReasoningEfforts = new Set<ModelReasoningEffort>(["minimal", "low", "medium", "high", "xhigh"]);
 
-/** Terra handles the focused extraction task; Luna High handles implementation analysis. */
+/** Terra handles focused extraction; Luna produces the concise technical design. */
 export function resolveStoryDocModelConfiguration(environment: NodeJS.ProcessEnv = process.env): StoryDocModelConfiguration {
   return {
     requirements: {
@@ -37,7 +37,7 @@ export function resolveStoryDocModelConfiguration(environment: NodeJS.ProcessEnv
     },
     implementation: {
       model: environment.STORYDOC_IMPLEMENTATION_MODEL ?? environment.STORYDOC_LUNA_MODEL ?? "gpt-5.6-luna",
-      reasoningEffort: resolveReasoningEffort(environment.STORYDOC_IMPLEMENTATION_REASONING_EFFORT, "high", "STORYDOC_IMPLEMENTATION_REASONING_EFFORT"),
+      reasoningEffort: resolveReasoningEffort(environment.STORYDOC_IMPLEMENTATION_REASONING_EFFORT, "low", "STORYDOC_IMPLEMENTATION_REASONING_EFFORT"),
     },
   };
 }

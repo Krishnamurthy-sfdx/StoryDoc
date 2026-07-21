@@ -197,7 +197,7 @@ Defaults route Terra at low reasoning effort and Luna at high:
 export STORYDOC_REQUIREMENTS_MODEL="gpt-5.6-terra"
 export STORYDOC_REQUIREMENTS_REASONING_EFFORT="low"
 export STORYDOC_IMPLEMENTATION_MODEL="gpt-5.6-luna"
-export STORYDOC_IMPLEMENTATION_REASONING_EFFORT="high"
+export STORYDOC_IMPLEMENTATION_REASONING_EFFORT="low"
 ```
 
 Accepted reasoning-effort values: `minimal`, `low`, `medium`, `high`, `xhigh`. `STORYDOC_TERRA_MODEL` and `STORYDOC_LUNA_MODEL` remain supported as shorter model-name overrides.

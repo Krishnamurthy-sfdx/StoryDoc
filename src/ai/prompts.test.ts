@@ -37,4 +37,6 @@ test("names Terra for extraction and Luna for implementation analysis", () => {
   });
   assert.match(requirements, /^You are Terra,/);
   assert.match(analysis, /^You are Luna,/);
+  assert.match(analysis, /concise, cohesive Salesforce technical design/);
+  assert.doesNotMatch(analysis, /acceptance-criteria report/);
 });

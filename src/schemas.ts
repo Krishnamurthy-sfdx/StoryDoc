@@ -47,7 +47,7 @@ export const acceptanceCriterionDocumentationSchema = z.object({
 });
 
 export const documentationAnalysisSchema = z.object({
-  story: z.object({ id: z.string(), summary: z.string() }),
+  story: z.object({ id: z.string(), summary: z.string(), url: z.string().url().optional() }),
   pullRequest: z.object({ number: z.number().int().positive(), title: z.string(), sourceBranch: z.string(), targetBranch: z.string(), status: z.string() }),
   solutionOverview: z.string(), acceptanceCriteria: z.array(acceptanceCriterionDocumentationSchema),
   components: z.array(componentAnalysisSchema), supportingChanges: z.array(z.string()), securityChanges: z.array(z.string()),

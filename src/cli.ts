@@ -7,7 +7,7 @@ import { compressPullRequestInput, type DiffCompressionResult } from "./ai/diffC
 import { loadLocalEnvironment } from "./config/localEnvironment.js";
 import { validateFileEvidence } from "./ai/evidenceValidator.js";
 import { buildDocumentationAnalysis } from "./documentation/buildAnalysis.js";
-import { renderHtml, renderMarkdown } from "./documentation/render.js";
+import { renderMarkdown } from "./documentation/render.js";
 import { GitHubCliPullRequestProvider } from "./providers/githubCliProvider.js";
 import { JiraStoryProvider } from "./providers/jiraProvider.js";
 import { LocalFileStoryProvider } from "./providers/localFileStoryProvider.js";
@@ -132,6 +132,11 @@ function skippedRequirements(story: { id: string; summary: string }) {
 function skippedImplementation() {
   console.log("[5/7] Luna skipped because --skip-ai was supplied.");
   return { solutionOverview: "AI analysis was skipped.", components: [], supportingChanges: [], securityChanges: [], dependencies: [], testing: { testFiles: [], sourceScenarios: [], executionStatus: "Tests were not executed by StoryDoc." as const }, deploymentNotes: [], assumptions: [] };
+}
+
+function jiraStoryUrl(ticket: string): string | undefined {
+  const baseUrl = process.env.JIRA_BASE_URL?.replace(/\/+$/, "");
+  return baseUrl ? `${baseUrl}/browse/${encodeURIComponent(ticket)}` : undefined;
 }
 
 function startProgressPulse(model: "Terra" | "Luna", activity: string): () => void {
