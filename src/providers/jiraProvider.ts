@@ -37,7 +37,7 @@ export class JiraStoryProvider implements StoryProvider {
     const url = this.issueUrl(reference);
     url.searchParams.set("fields", fields.join(","));
     const source = this.options.cloudId ? "Atlassian API gateway" : "Jira site API";
-    this.reportProgress?.(`[2/7] ${source}: fetching ${reference}; fields: summary, ${this.options.acceptanceCriteriaField} (Acceptance Criteria), ${this.options.technicalDesignField} (Technical Design).`);
+    this.reportProgress?.(`[2/8] ${source}: fetching ${reference}; fields: summary, ${this.options.acceptanceCriteriaField} (Acceptance Criteria), ${this.options.technicalDesignField} (Technical Design).`);
     const headers = this.headers();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs ?? defaultRequestTimeoutMs);
@@ -51,7 +51,7 @@ export class JiraStoryProvider implements StoryProvider {
       clearTimeout(timeout);
     }
     if (!response.ok) throw new Error(`Jira returned HTTP ${response.status} while loading ${reference}.`);
-    this.reportProgress?.(`[2/7] Jira API: response received for ${reference}; parsing the requested fields.`);
+    this.reportProgress?.(`[2/8] Jira API: response received for ${reference}; parsing the requested fields.`);
     let issue: z.infer<typeof jiraIssueResponseSchema>;
     try {
       issue = jiraIssueResponseSchema.parse(await response.json());
@@ -59,7 +59,10 @@ export class JiraStoryProvider implements StoryProvider {
       throw new Error(`Jira returned an invalid issue response for ${reference}: ${error instanceof Error ? error.message : String(error)}`);
     }
     const acceptanceCriteriaText = jiraValueToText(issue.fields[this.options.acceptanceCriteriaField]);
-    const technicalDesign = jiraValueToText(issue.fields[this.options.technicalDesignField]);
+    // Jira Cloud returns rich-text custom fields as Atlassian Document Format (ADF).
+    // Preserve its authored structure for the document body instead of flattening it
+    // into an AI-generated replacement design.
+    const technicalDesign = jiraValueToMarkdown(issue.fields[this.options.technicalDesignField]);
     return {
       id: reference,
       summary: jiraValueToText(issue.fields.summary),
@@ -137,4 +140,121 @@ function jiraValueToText(value: unknown): string {
   if (node.value) return node.value;
   if (Array.isArray(node.content)) return node.content.map(jiraValueToText).filter(Boolean).join(node.type === "paragraph" || node.type === "listItem" ? "\n" : "");
   return "";
+}
+
+type JiraAdfNode = {
+  type?: string;
+  text?: string;
+  value?: string;
+  content?: unknown[];
+  attrs?: { level?: number; language?: string; href?: string; url?: string; text?: string };
+  marks?: Array<{ type?: string; attrs?: { href?: string } }>;
+};
+
+/** Convert Jira ADF to Markdown while retaining the authored text and structure. */
+function jiraValueToMarkdown(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  return renderAdfNode(value).trim();
+}
+
+function renderAdfNode(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  const node = value as JiraAdfNode;
+  if (node.text !== undefined) return applyAdfMarks(node.text, node.marks ?? []);
+  if (node.value) return node.value;
+
+  const children = (node.content ?? []).map(renderAdfNode).filter(Boolean);
+  const joined = children.join("");
+  switch (node.type) {
+    case "doc":
+      return children.join("\n\n");
+    case "paragraph":
+      return joined;
+    case "heading":
+      return `${"#".repeat(clampHeadingLevel(node.attrs?.level))} ${joined}`;
+    case "bulletList":
+      return (node.content ?? []).map((item) => `- ${indentListItem(renderAdfNode(item))}`).join("\n");
+    case "orderedList":
+      return (node.content ?? []).map((item, index) => `${index + 1}. ${indentListItem(renderAdfNode(item))}`).join("\n");
+    case "listItem":
+      return children.join("\n");
+    case "table":
+      return renderAdfTable(node);
+    case "tableRow":
+      return children.join("\n");
+    case "tableHeader":
+    case "tableCell":
+      return children.join("\n");
+    case "hardBreak":
+      return "\n";
+    case "codeBlock": {
+      const language = node.attrs?.language?.trim();
+      return `\`\`\`${language ?? ""}\n${joined}\n\`\`\``;
+    }
+    case "blockquote":
+      return joined.split("\n").map((line) => `> ${line}`).join("\n");
+    case "inlineCard":
+      return node.attrs?.url ?? node.attrs?.text ?? "";
+    case "mention":
+      return node.attrs?.text ?? "";
+    default:
+      return children.join(node.type === "text" ? "" : "\n");
+  }
+}
+
+/**
+ * Jira rich-text tables are represented by ADF table/tableRow/tableCell nodes.
+ * Preserve their authored rows and cells as Markdown so the model never needs
+ * to infer that a sequence of field values was intended to be a table.
+ */
+function renderAdfTable(node: JiraAdfNode): string {
+  const rows = (node.content ?? [])
+    .filter(isAdfNodeOfType("tableRow"))
+    .map(renderAdfTableRow)
+    .filter((row) => row.length > 0);
+  if (rows.length === 0) return "";
+
+  const columnCount = Math.max(...rows.map((row) => row.length));
+  const normalizedRows = rows.map((row) => [...row, ...Array<string>(columnCount - row.length).fill("")]);
+  const [header, ...body] = normalizedRows;
+  return [renderMarkdownTableRow(header), renderMarkdownTableRow(header.map(() => "---")), ...body.map(renderMarkdownTableRow)].join("\n");
+}
+
+function renderAdfTableRow(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const row = value as JiraAdfNode;
+  return (row.content ?? [])
+    .filter((cell) => isAdfNodeOfType("tableHeader")(cell) || isAdfNodeOfType("tableCell")(cell))
+    .map((cell) => renderAdfNode(cell).trim().replaceAll("|", "\\|").replaceAll("\n", "<br>"));
+}
+
+function renderMarkdownTableRow(cells: string[]): string {
+  return `| ${cells.join(" | ")} |`;
+}
+
+function isAdfNodeOfType(type: string): (value: unknown) => boolean {
+  return (value): boolean => Boolean(value && typeof value === "object" && (value as JiraAdfNode).type === type);
+}
+
+function applyAdfMarks(text: string, marks: NonNullable<JiraAdfNode["marks"]>): string {
+  return marks.reduce((rendered, mark) => {
+    switch (mark.type) {
+      case "strong": return `**${rendered}**`;
+      case "em": return `*${rendered}*`;
+      case "strike": return `~~${rendered}~~`;
+      case "code": return `\`${rendered}\``;
+      case "link": return mark.attrs?.href ? `[${rendered}](${mark.attrs.href})` : rendered;
+      default: return rendered;
+    }
+  }, text);
+}
+
+function clampHeadingLevel(level: number | undefined): number {
+  if (typeof level !== "number" || !Number.isInteger(level)) return 2;
+  return Math.min(6, Math.max(1, level));
+}
+
+function indentListItem(value: string): string {
+  return value.trim().replaceAll("\n", "\n  ");
 }

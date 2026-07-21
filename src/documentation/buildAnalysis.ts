@@ -1,31 +1,33 @@
-import type { DocumentationAnalysis, ImplementationAnalysis, PullRequestDetails, RequirementsExtraction, StoryContent } from "../schemas.js";
+import type { DocumentationAnalysis, ImplementationAnalysis, PullRequestDetails, StoryContent } from "../schemas.js";
+import { findTechnicalDesignSectionHeading } from "../technicalDesignEvidence.js";
 
-export function buildDocumentationAnalysis(input: { story: StoryContent; storyUrl?: string; requirements: RequirementsExtraction; pullRequest: PullRequestDetails; implementation: ImplementationAnalysis }): DocumentationAnalysis {
-  const componentsByAc = new Map<string, typeof input.implementation.components>();
-  for (const component of input.implementation.components) {
-    for (const id of component.relatedAcceptanceCriteria) componentsByAc.set(id, [...(componentsByAc.get(id) ?? []), component]);
-  }
+/**
+ * Builds a renderer-friendly document without asking an AI model to recreate Jira's
+ * technical design. The Jira field remains the document body; Luna contributes only
+ * PR-evidenced updates that change or extend that source material.
+ */
+export function buildDocumentationAnalysis(input: { story: StoryContent; storyUrl?: string; pullRequest: PullRequestDetails; implementation: ImplementationAnalysis; solutionOverview?: string }): DocumentationAnalysis {
+  const solutionOverview = input.solutionOverview?.trim();
   return {
-    story: { id: input.story.id, summary: input.requirements.summary || input.story.summary, ...(input.storyUrl ? { url: input.storyUrl } : {}) },
-    pullRequest: { number: input.pullRequest.number, title: input.pullRequest.title, sourceBranch: input.pullRequest.sourceBranch, targetBranch: input.pullRequest.targetBranch, status: input.pullRequest.status },
-    solutionOverview: input.implementation.solutionOverview,
-    acceptanceCriteria: input.requirements.acceptanceCriteria.map((criterion) => {
-      const components = componentsByAc.get(criterion.id) ?? [];
-      return {
-        id: criterion.id,
-        criterion: criterion.text,
-        implementation: components.length ? components.map((component) => component.summary).join(" ") : "The implementation analysis did not associate a changed component with this criterion.",
-        components: components.map((component) => component.path),
-        technicalDetails: components.flatMap((component) => component.implementationDetails),
-        testing: components.flatMap((component) => component.testingChanges),
-      };
-    }),
-    components: input.implementation.components,
-    supportingChanges: input.implementation.supportingChanges,
-    securityChanges: input.implementation.securityChanges,
-    dependencies: input.implementation.dependencies,
-    testing: input.implementation.testing,
-    deploymentNotes: input.implementation.deploymentNotes,
-    assumptions: [...input.requirements.assumptions, ...input.implementation.assumptions],
+    story: {
+      id: input.story.id,
+      summary: input.story.summary,
+      ...(input.storyUrl ? { url: input.storyUrl } : {}),
+    },
+    pullRequest: {
+      number: input.pullRequest.number,
+      title: input.pullRequest.title,
+      sourceBranch: input.pullRequest.sourceBranch,
+      targetBranch: input.pullRequest.targetBranch,
+      status: input.pullRequest.status,
+    },
+    ...(solutionOverview ? { solutionOverview } : {}),
+    technicalDesign: input.story.technicalDesign,
+    technicalDesignAdjustments: input.implementation.technicalDesignAdjustments.map((adjustment) => ({
+      ...adjustment,
+      // Never render a model-invented section label. Derive the display heading from
+      // the preserved Jira source that contains the exact quoted statement instead.
+      sectionHeading: findTechnicalDesignSectionHeading(input.story.technicalDesign, adjustment.sourceText),
+    })),
   };
 }

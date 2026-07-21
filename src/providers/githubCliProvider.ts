@@ -18,11 +18,11 @@ export class GitHubCliPullRequestProvider implements PullRequestProvider {
   ) {}
 
   public async getPullRequest(prNumber: number): Promise<PullRequestDetails> {
-    this.reportProgress?.(`[1/7] GitHub CLI: fetching PR #${prNumber} metadata and changed-file list with gh pr view...`);
+    this.reportProgress?.(`[1/8] GitHub CLI: fetching PR #${prNumber} metadata and changed-file list with gh pr view...`);
     const metadata = await this.runGhJson<GhPullRequest>(["pr", "view", String(prNumber), "--json", "number,title,body,headRefName,baseRefName,state,files"]);
-    this.reportProgress?.(`[1/7] GitHub CLI: metadata received; fetching PR #${prNumber} diff with gh pr diff...`);
+    this.reportProgress?.(`[1/8] GitHub CLI: metadata received; fetching PR #${prNumber} diff with gh pr diff...`);
     const diff = await this.runGh(["pr", "diff", String(prNumber)]);
-    this.reportProgress?.(`[1/7] GitHub CLI: diff received (${Buffer.byteLength(diff, "utf8")} bytes).`);
+    this.reportProgress?.(`[1/8] GitHub CLI: diff received (${Buffer.byteLength(diff, "utf8")} bytes).`);
     assertDiffWithinLimit(diff);
     const changedFiles = (metadata.files ?? []).filter((file): file is GhFile & { path: string } => Boolean(file.path)).map((file) => this.mapFile(file));
     return pullRequestSchema.parse({ number: metadata.number ?? prNumber, title: metadata.title ?? "", description: metadata.body ?? "", sourceBranch: metadata.headRefName ?? "", targetBranch: metadata.baseRefName ?? "", status: metadata.state ?? "UNKNOWN", changedFiles, diff });
