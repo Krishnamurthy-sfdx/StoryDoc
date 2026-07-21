@@ -39,7 +39,7 @@ graph LR
     E["<b>5</b><br/>Terra 🌍<br/>(extract requirements)"]
     F["<b>6</b><br/>Luna 🌙<br/>(analyze code)"]
     G["<b>7</b><br/>Safety Checks<br/>(validate/redact)"]
-    H["<b>8</b><br/>Write Output<br/>(5 files)"]
+    H["<b>8</b><br/>Write Output<br/>(4 files)"]
 
     A --> B --> C --> D --> E --> F --> G --> H
 
