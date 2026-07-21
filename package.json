@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "description": "Local-first Salesforce pull-request documentation CLI",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "storydoc": "dist/cli.js"
