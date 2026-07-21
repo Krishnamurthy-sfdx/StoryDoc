@@ -10,8 +10,39 @@ It targets **Salesforce** development specifically: it recognises Apex classes, 
 
 ---
 
+## Built with Codex and GPT-5.6
+
+StoryDoc uses **GPT-5.6 as its analysis engine** and was **built almost entirely with Codex**.
+
+### GPT-5.6 powers the documentation
+
+The pipeline runs **three focused GPT-5.6 stages**, each executed through the **OpenAI Codex SDK** so the models run locally on your machine — inside a fresh, empty, **offline, read-only sandbox** with network and web search disabled. The models can read only the redacted prompt they are given; they cannot see your repository or `.env`.
+
+| Stage                                   | Model           | Reasoning effort | Job                                                                                                                               |
+| --------------------------------------- | --------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Requirements extraction — **Terra**  | `gpt-5.6-terra` | `low`            | Extract a clean, structured list of requirements and design references from the Jira story.                                       |
+| 2. Implementation comparison — **Luna** | `gpt-5.6-luna`  | `low`            | Compare the compressed PR diff against Jira's Technical Design and return only evidence-backed differences or material additions. |
+| 3. Solution overview — **Luna**         | `gpt-5.6-luna`  | `none`           | Draft a short orientation-only Solution Overview from compact, already-validated inputs.                                          |
+
+Splitting the work across models and effort levels is a deliberate cost/quality decision: a cheap pass organises the requirements, a stronger pass does the hard implementation reasoning, and a no-reasoning pass writes the summary. Every stage's output is constrained by a **JSON Schema derived from our Zod contracts** (`toCodexOutputSchema`), so GPT-5.6's structured output is machine-validated rather than trusted — and any cited file that isn't in the real PR fails the run.
+
+### Codex built the project
+
+The codebase was developed through a chain of **Codex sessions**, visible in the Git history as the `codex/storydoc-*` branches merged as pull requests **#8–#13**. Codex accelerated:
+
+- **Architecture** — the pluggable provider pattern (`PullRequestProvider` / `StoryProvider`) with real and local implementations.
+- **The security layer** — isolated-sandbox execution, multi-pattern secret redaction, path-traversal protection, and the repo-wide secret scan.
+- **The Jira integration** — REST API v3 client, three validated auth modes, and the deterministic ADF→Markdown table converter.
+- **The diff-compression engine** — `filterSalesforceNoise` + `extractDiffHunks`, plus the audit that proves nothing important was dropped.
+- **Testing & docs** — the unit suite (network-free Jira tests via injected `fetch`), this README, and the 500-line [Implementation Guide](docs/IMPLEMENTATION_GUIDE.md).
+
+> If the Codex SDK's bundled executable is unavailable or outdated locally, point StoryDoc at a current authenticated Codex binary with `export STORYDOC_CODEX_PATH="$(command -v codex)"` — no application code changes needed.
+
+---
+
 ## Table of Contents
 
+- [Built with Codex and GPT-5.6](#built-with-codex-and-gpt-56)
 - [How It Works](#how-it-works)
 - [Features](#features)
 - [Prerequisites](#prerequisites)
