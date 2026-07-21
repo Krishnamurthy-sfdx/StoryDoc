@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <customPermissions>
+        <enabled>true</enabled>
+        <name>Bypass_Subscription_Flow</name>
+    </customPermissions>
+    <description
+  >Grants the Bypass Subscription Flow custom permission. Assign to data-migration and integration users so Closed Won opportunities do not auto-create subscriptions.</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>Subscription Automation Bypass</label>
+</PermissionSet>

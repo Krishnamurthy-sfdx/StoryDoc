@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomPermission xmlns="http://soap.sforce.com/2006/04/metadata">
+    <isLicensed>false</isLicensed>
+    <label>Bypass Subscription Flow</label>
+    <description
+  >Users holding this permission are skipped by Create_Subscription_On_Closed_Won and are exempt from the Status change guard. Intended for data loads and integration users.</description>
+</CustomPermission>
